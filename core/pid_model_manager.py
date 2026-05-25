@@ -39,37 +39,6 @@ def _setup_compat():
     _COMPAT_PATCHED = True
 
 
-def _resolve_vae_for_backbone(backbone: str) -> str | None:
-    """Find a matching VAE checkpoint in ComfyUI's vae/ folder for the given backbone.
-
-    Backbones that do NOT use a standard VAE (rae / scale_rae) return None.
-    """
-    if backbone in ("rae", "scale_rae"):
-        return None
-
-    import folder_paths
-
-    vae_folders = folder_paths.get_folder_paths("vae")
-    if not vae_folders:
-        return None
-
-    # Ordered candidate list per backbone.
-    candidates: dict[str, list[str]] = {
-        "flux": ["ae.safetensors", "ae.sft", "flux_vae.safetensors"],
-        "flux2": ["flux2-vae.safetensors", "flux2_vae.safetensors", "ae.safetensors", "ae.sft"],
-        "sd3": ["sd3_vae.safetensors", "sd3-vae.safetensors"],
-        "zimage": ["ae.safetensors", "ae.sft", "flux_vae.safetensors"],
-    }
-
-    for name in candidates.get(backbone, []):
-        for folder in vae_folders:
-            candidate = os.path.join(folder, name)
-            if os.path.isfile(candidate):
-                return candidate
-
-    return None
-
-
 def _resolve_ckpt_path(ckpt_path: str) -> str | None:
     """Resolve checkpoint path using ComfyUI model folders.
 
@@ -146,21 +115,17 @@ def _load_pid_model(
     logger.info(f"  checkpoint={ckpt_path}")
 
     plugin_root = Path(__file__).parent.parent.resolve()
-    orig_cwd = os.getcwd()
-    os.chdir(plugin_root)
-    try:
-        model, _ = load_model_from_checkpoint(
-            experiment_name=experiment,
-            checkpoint_path=ckpt_path,
-            config_file="pid_core/_src/configs/pid/config.py",
-            enable_fsdp=False,
-            experiment_opts=experiment_opts,
-            strict=False,
-            load_ema_to_reg=False,
-        )
-        model.eval()
-    finally:
-        os.chdir(orig_cwd)
+    config_file = str(plugin_root / "pid_core/_src/configs/pid/config.py")
+    model, _ = load_model_from_checkpoint(
+        experiment_name=experiment,
+        checkpoint_path=ckpt_path,
+        config_file=config_file,
+        enable_fsdp=False,
+        experiment_opts=experiment_opts,
+        strict=False,
+        load_ema_to_reg=False,
+    )
+    model.eval()
 
     param_count = sum(p.numel() for p in model.parameters())
     logger.info(f"PiD model loaded. Parameters: {param_count:,}")
@@ -168,9 +133,12 @@ def _load_pid_model(
 
 
 def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None = None) -> Any:
-    """Get or load a cached PiD model."""
+    """Get or load a cached PiD model. Only one model is kept at a time to save VRAM."""
     cache_key = f"{backbone}:{ckpt_type}:{checkpoint_path or 'default'}"
     if cache_key not in _MODEL_CACHE:
+        _MODEL_CACHE.clear()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         _MODEL_CACHE[cache_key] = _load_pid_model(backbone, ckpt_type, checkpoint_path)
     return _MODEL_CACHE[cache_key]
 
@@ -190,12 +158,6 @@ def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
     return samples
 
 
-def comfy_image_to_pid(image: torch.Tensor) -> torch.Tensor:
-    if image.dim() != 4:
-        raise ValueError(f"Expected image [B,H,W,C], got shape {image.shape}")
-    return image.permute(0, 3, 1, 2) * 2.0 - 1.0
-
-
 def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
     if image.dim() == 5:
         image = image.squeeze(2)
@@ -213,13 +175,9 @@ def sanitize_prompt(prompt: str, fallback: str = "high quality image") -> str:
 
 
 def _get_model_device_dtype(model: Any) -> tuple[str, torch.dtype]:
-    """Return (device, dtype) for the model, with cross-platform fallbacks."""
-    device = next(model.parameters()).device.type
-    if device == "cpu":
-        return "cpu", torch.float32
-    if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
-        return device, torch.bfloat16
-    return device, torch.float16
+    """Return (device, dtype) from the model's own parameters."""
+    param = next(model.parameters())
+    return param.device.type, param.dtype
 
 
 def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int, scale: int | None) -> int:
@@ -293,10 +251,3 @@ def run_pid_decode(
 
     return pid_image_to_comfy(output)
 
-
-def pid_encode_image(model: Any, image: torch.Tensor) -> torch.Tensor:
-    device = next(model.parameters()).device
-    if image.device != device:
-        image = image.to(device=device)
-    with torch.no_grad():
-        return model.encode_lq_latent(image)
