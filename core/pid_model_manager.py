@@ -80,6 +80,7 @@ def _load_pid_model(
     backbone: str,
     ckpt_type: str,
     checkpoint_path: str | None = None,
+    vae_path: str | None = None,
 ) -> Any:
     _ensure_pid_in_path()
     _setup_compat()
@@ -96,7 +97,6 @@ def _load_pid_model(
         ckpt_path = _resolve_ckpt_path(ckpt_info.checkpoint_path)
 
     if not ckpt_path or not os.path.isfile(ckpt_path):
-        # Strip legacy prefix for user-facing error message
         display_path = ckpt_info.checkpoint_path
         if display_path.startswith("checkpoints/"):
             display_path = display_path[len("checkpoints/"):]
@@ -106,6 +106,11 @@ def _load_pid_model(
             f"          or ComfyUI/models/PiD/<name>.pth\n"
             f"Download from: https://huggingface.co/nvidia/PiD"
         )
+
+    experiment_opts: list[str] = []
+    if vae_path and os.path.isfile(vae_path):
+        logger.info(f"  VAE override: {vae_path}")
+        experiment_opts.append(f"model.config.tokenizer.vae_pth={vae_path}")
 
     logger.info(f"Loading PiD model: backbone={backbone}, ckpt_type={ckpt_type}")
     logger.info(f"  experiment={experiment}")
@@ -120,7 +125,7 @@ def _load_pid_model(
             checkpoint_path=ckpt_path,
             config_file="pid_core/_src/configs/pid/config.py",
             enable_fsdp=False,
-            experiment_opts=[],
+            experiment_opts=experiment_opts,
             strict=False,
             load_ema_to_reg=False,
         )
@@ -133,11 +138,11 @@ def _load_pid_model(
     return model
 
 
-def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None = None) -> Any:
+def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None = None, vae_path: str | None = None) -> Any:
     """Get or load a cached PiD model."""
-    cache_key = f"{backbone}:{ckpt_type}:{checkpoint_path or 'default'}"
+    cache_key = f"{backbone}:{ckpt_type}:{checkpoint_path or 'default'}:{vae_path or 'default'}"
     if cache_key not in _MODEL_CACHE:
-        _MODEL_CACHE[cache_key] = _load_pid_model(backbone, ckpt_type, checkpoint_path)
+        _MODEL_CACHE[cache_key] = _load_pid_model(backbone, ckpt_type, checkpoint_path, vae_path)
     return _MODEL_CACHE[cache_key]
 
 

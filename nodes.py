@@ -61,6 +61,12 @@ class PiDModelLoader(io.ComfyNode):
                     default="",
                     tooltip="Select a PiD checkpoint from ComfyUI/models/PiD/. Leave empty to use the official registry default.",
                 ),
+                io.Combo.Input(
+                    "vae_name",
+                    options=["(auto)"] + (folder_paths.get_filename_list("vae") or []),
+                    default="(auto)",
+                    tooltip="VAE for the backbone. '(auto)' = let PiD load its own VAE. Otherwise select from ComfyUI/models/vae/.",
+                ),
             ],
             outputs=[
                 PID_MODEL.Output("PID_MODEL", display_name="PiD Model"),
@@ -68,11 +74,14 @@ class PiDModelLoader(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, backbone: str, ckpt_type: str, checkpoint_name: str):
+    def execute(cls, backbone: str, ckpt_type: str, checkpoint_name: str, vae_name: str):
         ckpt_path = None
         if checkpoint_name and not checkpoint_name.startswith("("):
             ckpt_path = folder_paths.get_full_path("pid", checkpoint_name)
-        model = get_cached_model(backbone, ckpt_type, ckpt_path)
+        vae_path = None
+        if vae_name and vae_name != "(auto)":
+            vae_path = folder_paths.get_full_path("vae", vae_name)
+        model = get_cached_model(backbone, ckpt_type, ckpt_path, vae_path)
         return io.NodeOutput({
             "model": model,
             "backbone": backbone,
