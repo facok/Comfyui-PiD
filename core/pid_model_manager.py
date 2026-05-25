@@ -22,12 +22,8 @@ _COMPAT_PATCHED = False
 
 
 def _ensure_pid_in_path():
-    """Ensure plugin root is in sys.path so 'pid_core' package can be imported.
-
-    Also checks for legacy 'PiD/' upstream directory as fallback.
-    """
+    """Ensure plugin root is in sys.path so 'pid_core' package can be imported."""
     plugin_root = Path(__file__).parent.parent.resolve()
-
     if str(plugin_root) not in sys.path:
         sys.path.insert(0, str(plugin_root))
 
@@ -108,9 +104,6 @@ def clear_model_cache():
     logger.info("PiD model cache cleared.")
 
 
-# Format conversions
-
-
 def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
     samples = latent["samples"]
     if not isinstance(samples, torch.Tensor):
@@ -121,7 +114,7 @@ def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
 def comfy_image_to_pid(image: torch.Tensor) -> torch.Tensor:
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,H,W,C], got shape {image.shape}")
-    return image.permute(0, 3, 1, 2).mul_(2.0).sub_(1.0)
+    return image.permute(0, 3, 1, 2) * 2.0 - 1.0
 
 
 def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
@@ -129,14 +122,11 @@ def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
         image = image.squeeze(2)
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,C,H,W], got shape {image.shape}")
-    return image.add(1.0).div_(2.0).clamp_(0.0, 1.0).permute(0, 2, 3, 1)
+    return ((image + 1.0) / 2.0).clamp_(0.0, 1.0).permute(0, 2, 3, 1)
 
 
 def pid_latent_to_comfy(latent: torch.Tensor) -> dict:
     return {"samples": latent.cpu().float()}
-
-
-# Shared helpers
 
 
 def sanitize_prompt(prompt: str, fallback: str = "high quality image") -> str:
