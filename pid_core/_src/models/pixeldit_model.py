@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 import attrs
@@ -220,9 +221,10 @@ class PixelDiTModel(ImaginaireModel):
 
         _dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
         requested_dtype = _dtype_map[config.precision]
-        # Inference-only: run everything in bfloat16 to halve VRAM.
-        self.autocast_dtype = None
-        self.precision = requested_dtype if requested_dtype != torch.float32 else torch.bfloat16
+        # Inference-only: bfloat16 weights + autocast so float32 intermediates
+        # (RoPE, RMSNorm, etc.) are automatically cast instead of raising dtype errors.
+        self.autocast_dtype = requested_dtype if requested_dtype != torch.float32 else torch.bfloat16
+        self.precision = self.autocast_dtype
         self.tensor_kwargs = {"device": "cuda", "dtype": self.precision}
 
         with misc.timer("PixelDiTModel: build_net"):
@@ -278,7 +280,10 @@ class PixelDiTModel(ImaginaireModel):
         if te_device.type == "cpu":
             self.text_encoder = self.text_encoder.to("cuda")
 
-        caption_embs = self.text_encoder(caption_token.input_ids, caption_token.attention_mask)[0]
+        # Autocast needed because Gemma's RMSNorm computes in float32 internally;
+        # without autocast the bf16 weight × float32 hidden-state multiplication errors out.
+        with torch.autocast("cuda", dtype=self.autocast_dtype) if self.autocast_dtype else nullcontext():
+            caption_embs = self.text_encoder(caption_token.input_ids, caption_token.attention_mask)[0]
 
         if te_device.type == "cpu":
             self.text_encoder = self.text_encoder.to("cpu")
