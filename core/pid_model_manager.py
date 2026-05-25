@@ -33,7 +33,7 @@ def _setup_compat():
     global _COMPAT_PATCHED
     if _COMPAT_PATCHED:
         return
-    from core.compat import setup_pid_compat
+    from .compat import setup_pid_compat
 
     setup_pid_compat()
     _COMPAT_PATCHED = True

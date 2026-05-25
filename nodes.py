@@ -16,7 +16,7 @@ from typing_extensions import override
 import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
-from core.pid_model_manager import (
+from .core.pid_model_manager import (
     comfy_image_to_pid,
     comfy_latent_to_pid,
     get_cached_model,
