@@ -268,10 +268,16 @@ class PixelDiTModel(ImaginaireModel):
     def _encode_text_raw(self, captions: list[str]) -> tuple[Tensor, Tensor]:
         if self._chi_prompt_str:
             prompts_all = [self._chi_prompt_str + cap for cap in captions]
-            max_length_all = self._num_chi_tokens + self.config.model_max_length - 2
         else:
             prompts_all = captions
-            max_length_all = self.config.model_max_length
+
+        # Use a tight max_length to minimise PAD tokens.  We do NOT know the exact
+        # token count yet (the tokenizer may add BOS/EOS), so we estimate with
+        # add_special_tokens=False and add a small head-room.
+        _est_len = max(
+            len(self.tokenizer.encode(p, add_special_tokens=False)) for p in prompts_all
+        )
+        max_length_all = max(_est_len + 4, self.config.model_max_length)
 
         caption_token = self.tokenizer(
             prompts_all,
@@ -280,6 +286,10 @@ class PixelDiTModel(ImaginaireModel):
             truncation=True,
             return_tensors="pt",
         ).to("cuda")
+
+        # The *real* number of non-PAD positions (includes BOS/EOS added by the
+        # tokenizer).  Using attention_mask is the only reliable way.
+        actual_len = int(caption_token.attention_mask.sum(dim=1)[0].item())
 
         # Text encoder lives on CPU to save VRAM.  Move to GPU only while
         # encoding, then move back immediately.
@@ -296,9 +306,16 @@ class PixelDiTModel(ImaginaireModel):
             self.text_encoder = self.text_encoder.to("cpu")
             torch.cuda.empty_cache()
 
-        select_index = [0] + list(range(-self.config.model_max_length + 1, 0))
-        caption_embs = caption_embs[:, select_index]
-        emb_masks = caption_token.attention_mask[:, select_index]
+        # Slice out only the real tokens (attention_mask == 1).  Never feed PAD
+        # embeddings into PiD's joint attention — they corrupt generation.
+        logger.info(f"_encode_text_raw: actual_len={actual_len}, max_length_all={max_length_all}")
+        if actual_len <= self.config.model_max_length:
+            caption_embs = caption_embs[:, :actual_len]
+            emb_masks = caption_token.attention_mask[:, :actual_len]
+        else:
+            select_index = [0] + list(range(-self.config.model_max_length + 1, 0))
+            caption_embs = caption_embs[:, select_index]
+            emb_masks = caption_token.attention_mask[:, select_index]
         return caption_embs, emb_masks
 
     def _normalize_image(self, img: Tensor) -> Tensor:
