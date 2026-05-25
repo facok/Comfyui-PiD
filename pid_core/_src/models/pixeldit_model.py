@@ -208,7 +208,7 @@ class _FlowMatchingTimescale(nn.Module):
 class PixelDiTModel(ImaginaireModel):
     SUPPORTS_CONTEXT_PARALLEL: bool = False
 
-    def __init__(self, config: PixelDiTModelConfig):
+    def __init__(self, config: PixelDiTModelConfig, text_encoder: Any = None):
         super().__init__()
         self.config = config
 
@@ -237,15 +237,22 @@ class PixelDiTModel(ImaginaireModel):
 
         # Frozen text encoder. Use object.__setattr__ so DCP / nn.Module don't try to
         # register it as a child / save it in state_dict.
-        with misc.timer("PixelDiTModel: load_text_encoder"):
-            _tokenizer, _text_encoder = _load_text_encoder(config.text_encoder_name, device="cuda")
-            object.__setattr__(self, "tokenizer", _tokenizer)
-            object.__setattr__(self, "text_encoder", _text_encoder)
-            self._chi_prompt_str = "\n".join(config.chi_prompt) if config.chi_prompt else ""
-            self._num_chi_tokens = len(self.tokenizer.encode(self._chi_prompt_str)) if self._chi_prompt_str else 0
-            self._null_caption_embs = self._encode_text_raw([config.negative_prompt if config.negative_prompt else ""])[
-                0
-            ]
+        # If an external text_encoder is provided (e.g. from cache), reuse it to avoid
+        # reloading the 2.5B model when switching backbone / ckpt_type.
+        if text_encoder is not None:
+            logger.info("PixelDiTModel: reusing external text encoder (cached)")
+            object.__setattr__(self, "tokenizer", text_encoder["tokenizer"])
+            object.__setattr__(self, "text_encoder", text_encoder["model"])
+        else:
+            with misc.timer("PixelDiTModel: load_text_encoder"):
+                _tokenizer, _text_encoder = _load_text_encoder(config.text_encoder_name, device="cuda")
+                object.__setattr__(self, "tokenizer", _tokenizer)
+                object.__setattr__(self, "text_encoder", _text_encoder)
+        self._chi_prompt_str = "\n".join(config.chi_prompt) if config.chi_prompt else ""
+        self._num_chi_tokens = len(self.tokenizer.encode(self._chi_prompt_str)) if self._chi_prompt_str else 0
+        self._null_caption_embs = self._encode_text_raw([config.negative_prompt if config.negative_prompt else ""])[
+            0
+        ]
 
         # Tiny flow-matching shim: only `timescale` is consumed by inference.
         self.fm_trainer = _FlowMatchingTimescale(config.fm_timescale)

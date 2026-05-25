@@ -24,6 +24,7 @@ def load_model_from_checkpoint(
     seed=0,
     experiment_opts: list[str] = [],
     strict=True,
+    text_encoder=None,
 ):
     config_module = get_config_module(config_file)
     config = importlib.import_module(config_module).make_config()
@@ -43,7 +44,10 @@ def load_model_from_checkpoint(
         config.model.config.fsdp_shard_size = 1
 
     with misc.timer("instantiate model"):
-        model = instantiate(config.model).cuda()
+        if text_encoder is not None:
+            model = instantiate(config.model, text_encoder=text_encoder).cuda()
+        else:
+            model = instantiate(config.model).cuda()
         model.on_train_start()
 
     if checkpoint_path.endswith(".pth"):

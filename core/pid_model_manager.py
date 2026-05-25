@@ -18,6 +18,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 _MODEL_CACHE: dict[str, Any] = {}
+_TEXT_ENCODER_CACHE: dict[str, Any] = {}
 _COMPAT_PATCHED = False
 
 
@@ -76,6 +77,29 @@ def _resolve_ckpt_path(ckpt_path: str) -> str | None:
     return None
 
 
+def get_cached_text_encoder(name: str = "gemma-2-2b-it") -> dict[str, Any] | None:
+    """Get or load a cached text encoder. All PiD checkpoints use the same
+    gemma-2-2b-it encoder, so caching it avoids reloading ~2.5B params when
+    switching backbone / ckpt_type.
+    """
+    if name not in _TEXT_ENCODER_CACHE:
+        from pid_core._src.models.pixeldit_model import _load_text_encoder
+
+        logger.info(f"Loading text encoder '{name}' (not cached)")
+        tokenizer, model = _load_text_encoder(name, device="cuda")
+        _TEXT_ENCODER_CACHE[name] = {"tokenizer": tokenizer, "model": model}
+        logger.info(f"Text encoder '{name}' cached.")
+    else:
+        logger.info(f"Text encoder '{name}' loaded from cache.")
+    return _TEXT_ENCODER_CACHE[name]
+
+
+def clear_text_encoder_cache():
+    """Clear the text encoder cache to free RAM."""
+    _TEXT_ENCODER_CACHE.clear()
+    logger.info("Text encoder cache cleared.")
+
+
 def _load_pid_model(
     backbone: str,
     ckpt_type: str,
@@ -114,6 +138,9 @@ def _load_pid_model(
     logger.info(f"  experiment={experiment}")
     logger.info(f"  checkpoint={ckpt_path}")
 
+    # Reuse cached text encoder so switching backbone/ckpt doesn't reload Gemma.
+    text_encoder = get_cached_text_encoder("gemma-2-2b-it")
+
     plugin_root = Path(__file__).parent.parent.resolve()
     if str(plugin_root) not in sys.path:
         sys.path.insert(0, str(plugin_root))
@@ -125,6 +152,7 @@ def _load_pid_model(
         experiment_opts=experiment_opts,
         strict=False,
         load_ema_to_reg=False,
+        text_encoder=text_encoder,
     )
     model.eval()
 
@@ -150,8 +178,9 @@ def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None 
 
 
 def clear_model_cache():
-    """Clear all cached models to free VRAM."""
+    """Clear all cached models and text encoder to free VRAM/RAM."""
     _MODEL_CACHE.clear()
+    _TEXT_ENCODER_CACHE.clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     logger.info("PiD model cache cleared.")
