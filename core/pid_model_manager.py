@@ -60,9 +60,18 @@ def _setup_compat():
 
 
 def _resolve_ckpt_path(ckpt_path: str) -> str:
-    """Resolve checkpoint path using ComfyUI model folders."""
+    """Resolve checkpoint path using ComfyUI model folders.
+
+    Registry paths include a legacy 'checkpoints/' prefix; we strip it
+    so models live directly under ComfyUI/models/PiD/.
+    """
     if os.path.isabs(ckpt_path):
         return ckpt_path
+
+    # Strip legacy 'checkpoints/' prefix
+    if ckpt_path.startswith("checkpoints/"):
+        ckpt_path = ckpt_path[len("checkpoints/"):]
+
     try:
         import folder_paths
         for folder in folder_paths.get_folder_paths("pid"):
@@ -93,7 +102,7 @@ def _load_pid_model(
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(
             f"PiD checkpoint not found: {ckpt_path}\n"
-            f"Expected location: ComfyUI/models/PiD/{ckpt_info.checkpoint_path}\n"
+            f"Expected: ComfyUI/models/PiD/{ckpt_info.checkpoint_path}\n"
             f"Download from: https://huggingface.co/nvidia/PiD"
         )
 
