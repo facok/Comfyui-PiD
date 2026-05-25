@@ -13,6 +13,7 @@ from typing import Any
 
 from typing_extensions import override
 
+import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
 from core.pid_model_manager import (
@@ -20,7 +21,6 @@ from core.pid_model_manager import (
     comfy_latent_to_pid,
     get_cached_model,
     pid_encode_image,
-    pid_latent_to_comfy,
     run_pid_decode,
 )
 
@@ -55,10 +55,11 @@ class PiDModelLoader(io.ComfyNode):
                     default="2k",
                     tooltip="'2k' = 2048px decoder (4x upscaling). '2kto4k' = up to 4K (flux/flux2/sd3/zimage only)",
                 ),
-                io.String.Input(
-                    "checkpoint_path",
+                io.Combo.Input(
+                    "checkpoint_name",
+                    options=folder_paths.get_filename_list("pid") or ["(none - download from huggingface.co/nvidia/PiD)"],
                     default="",
-                    tooltip="Optional: explicit checkpoint path. If empty, uses the official registry default. Models should be placed in ComfyUI/models/PiD/",
+                    tooltip="Select a PiD checkpoint from ComfyUI/models/PiD/. Leave empty to use the official registry default.",
                 ),
             ],
             outputs=[
@@ -67,8 +68,10 @@ class PiDModelLoader(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, backbone: str, ckpt_type: str, checkpoint_path: str):
-        ckpt_path = checkpoint_path.strip() or None
+    def execute(cls, backbone: str, ckpt_type: str, checkpoint_name: str):
+        ckpt_path = None
+        if checkpoint_name and not checkpoint_name.startswith("("):
+            ckpt_path = folder_paths.get_full_path("pid", checkpoint_name)
         model = get_cached_model(backbone, ckpt_type, ckpt_path)
         return io.NodeOutput({
             "model": model,
@@ -225,7 +228,6 @@ class PiDDecodeFromImage(io.ComfyNode):
             ],
             outputs=[
                 io.Image.Output("IMAGE", tooltip="Super-resolved output"),
-                io.Latent.Output("LATENT", tooltip="Encoded latent (optional debug output)"),
             ],
         )
 
@@ -255,7 +257,7 @@ class PiDDecodeFromImage(io.ComfyNode):
             scale=scale,
         )
 
-        return io.NodeOutput(comfy_image, pid_latent_to_comfy(latent))
+        return io.NodeOutput(comfy_image)
 
 
 class PiDExtension(ComfyExtension):

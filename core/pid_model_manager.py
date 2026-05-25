@@ -21,26 +21,6 @@ _MODEL_CACHE: dict[str, Any] = {}
 _COMPAT_PATCHED = False
 
 
-def _register_pid_model_folder():
-    """Register ComfyUI/models/PiD as the standard model folder for PiD checkpoints."""
-    try:
-        import folder_paths
-        base = folder_paths.base_path
-        pid_dir = os.path.join(base, "models", "PiD")
-        if os.path.exists(pid_dir):
-            folder_paths.add_model_folder_path("pid", pid_dir)
-        else:
-            # Fallback: create directory inside custom_nodes/Comfyui-PiD
-            plugin_root = Path(__file__).parent.parent.resolve()
-            fallback = str(plugin_root / "checkpoints")
-            folder_paths.add_model_folder_path("pid", fallback)
-    except Exception:
-        pass
-
-
-_register_pid_model_folder()
-
-
 def _ensure_pid_in_path():
     """Ensure plugin root is in sys.path so 'pid_core' package can be imported."""
     plugin_root = Path(__file__).parent.parent.resolve()
@@ -59,12 +39,15 @@ def _setup_compat():
     _COMPAT_PATCHED = True
 
 
-def _resolve_ckpt_path(ckpt_path: str) -> str:
+def _resolve_ckpt_path(ckpt_path: str) -> str | None:
     """Resolve checkpoint path using ComfyUI model folders.
 
     Registry paths include a legacy 'checkpoints/' prefix; we strip it
     so models live directly under ComfyUI/models/PiD/.
+    Also tries common suffixes (.pth, .safetensors) if the exact path is missing.
     """
+    if not ckpt_path:
+        return None
     if os.path.isabs(ckpt_path):
         return ckpt_path
 
@@ -72,16 +55,25 @@ def _resolve_ckpt_path(ckpt_path: str) -> str:
     if ckpt_path.startswith("checkpoints/"):
         ckpt_path = ckpt_path[len("checkpoints/"):]
 
-    try:
-        import folder_paths
-        for folder in folder_paths.get_folder_paths("pid"):
-            candidate = os.path.join(folder, ckpt_path)
-            if os.path.exists(candidate):
-                return candidate
-    except Exception:
-        pass
-    plugin_root = Path(__file__).parent.parent.resolve()
-    return str(plugin_root / ckpt_path)
+    import folder_paths
+    for folder in folder_paths.get_folder_paths("pid"):
+        candidate = os.path.join(folder, ckpt_path)
+        if os.path.isfile(candidate):
+            return candidate
+        # Try common alternative filenames (single-file downloads from HF)
+        base, _ = os.path.splitext(candidate)
+        for ext in (".pth", ".pt", ".safetensors", ".bin"):
+            alt = base + ext
+            if os.path.isfile(alt):
+                return alt
+            # Also try without the /model_ema_bf16 suffix
+            dir_alt = os.path.dirname(candidate)
+            name = os.path.basename(dir_alt) + ext
+            alt2 = os.path.join(os.path.dirname(dir_alt), name)
+            if os.path.isfile(alt2):
+                return alt2
+
+    return None
 
 
 def _load_pid_model(
@@ -97,16 +89,21 @@ def _load_pid_model(
 
     ckpt_info = get_pid_checkpoint(backbone, ckpt_type)
     experiment = ckpt_info.experiment
-    ckpt_path = _resolve_ckpt_path(checkpoint_path or ckpt_info.checkpoint_path)
 
-    if not os.path.exists(ckpt_path):
+    if checkpoint_path and os.path.isfile(checkpoint_path):
+        ckpt_path = checkpoint_path
+    else:
+        ckpt_path = _resolve_ckpt_path(ckpt_info.checkpoint_path)
+
+    if not ckpt_path or not os.path.isfile(ckpt_path):
         # Strip legacy prefix for user-facing error message
         display_path = ckpt_info.checkpoint_path
         if display_path.startswith("checkpoints/"):
             display_path = display_path[len("checkpoints/"):]
         raise FileNotFoundError(
-            f"PiD checkpoint not found: {ckpt_path}\n"
+            f"PiD checkpoint not found for {backbone}/{ckpt_type}\n"
             f"Expected: ComfyUI/models/PiD/{display_path}\n"
+            f"          or ComfyUI/models/PiD/<name>.pth\n"
             f"Download from: https://huggingface.co/nvidia/PiD"
         )
 
