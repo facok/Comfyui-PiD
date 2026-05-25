@@ -35,13 +35,13 @@ class PidDistillModelConfig(PidModelConfig):
 class PidDistillModel(PidModel):
     """Inference-only PID distilled student."""
 
-    def __init__(self, config: PidDistillModelConfig):
+    def __init__(self, config: PidDistillModelConfig, text_encoder=None):
         # Stubs left in place so any parent code that probes for these attributes
         # gets None instead of AttributeError.
         self.teacher = None
         self.fake_score = None
         self.discriminator = None
-        super().__init__(config)
+        super().__init__(config, text_encoder=text_encoder)
 
     # ---------------------------------------------------------------------
     # Net output ↔ (x0, velocity) conversion

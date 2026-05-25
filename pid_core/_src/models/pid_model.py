@@ -41,8 +41,8 @@ class PidModelConfig(PixelDiTModelConfig):
 class PidModel(PixelDiTModel):
     """PID (PixelDiT SR) inference model (frozen VAE + LQ-conditioned student)."""
 
-    def __init__(self, config: PidModelConfig):
-        super().__init__(config)
+    def __init__(self, config: PidModelConfig, text_encoder=None):
+        super().__init__(config, text_encoder=text_encoder)
 
         if config.tokenizer is not None:
             with misc.timer("PidModel: load_vae"):
