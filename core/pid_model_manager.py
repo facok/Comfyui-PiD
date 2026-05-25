@@ -39,6 +39,37 @@ def _setup_compat():
     _COMPAT_PATCHED = True
 
 
+def _resolve_vae_for_backbone(backbone: str) -> str | None:
+    """Find a matching VAE checkpoint in ComfyUI's vae/ folder for the given backbone.
+
+    Backbones that do NOT use a standard VAE (rae / scale_rae) return None.
+    """
+    if backbone in ("rae", "scale_rae"):
+        return None
+
+    import folder_paths
+
+    vae_folders = folder_paths.get_folder_paths("vae")
+    if not vae_folders:
+        return None
+
+    # Ordered candidate list per backbone.
+    candidates: dict[str, list[str]] = {
+        "flux": ["ae.safetensors", "ae.sft", "flux_vae.safetensors"],
+        "flux2": ["flux2-vae.safetensors", "flux2_vae.safetensors", "ae.safetensors", "ae.sft"],
+        "sd3": ["sd3_vae.safetensors", "sd3-vae.safetensors"],
+        "zimage": ["ae.safetensors", "ae.sft", "flux_vae.safetensors"],
+    }
+
+    for name in candidates.get(backbone, []):
+        for folder in vae_folders:
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate):
+                return candidate
+
+    return None
+
+
 def _resolve_ckpt_path(ckpt_path: str) -> str | None:
     """Resolve checkpoint path using ComfyUI model folders.
 
@@ -80,7 +111,6 @@ def _load_pid_model(
     backbone: str,
     ckpt_type: str,
     checkpoint_path: str | None = None,
-    vae_path: str | None = None,
 ) -> Any:
     _ensure_pid_in_path()
     _setup_compat()
@@ -107,10 +137,9 @@ def _load_pid_model(
             f"Download from: https://huggingface.co/nvidia/PiD"
         )
 
-    experiment_opts: list[str] = []
-    if vae_path and os.path.isfile(vae_path):
-        logger.info(f"  VAE override: {vae_path}")
-        experiment_opts.append(f"model.config.tokenizer.vae_pth={vae_path}")
+    # Disable PiD's built-in VAE loading.  ComfyUI already provides VAE
+    # encode/decode nodes; PiD only needs the diffusion decoder.
+    experiment_opts: list[str] = ["model.config.tokenizer=null"]
 
     logger.info(f"Loading PiD model: backbone={backbone}, ckpt_type={ckpt_type}")
     logger.info(f"  experiment={experiment}")
@@ -138,11 +167,11 @@ def _load_pid_model(
     return model
 
 
-def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None = None, vae_path: str | None = None) -> Any:
+def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None = None) -> Any:
     """Get or load a cached PiD model."""
-    cache_key = f"{backbone}:{ckpt_type}:{checkpoint_path or 'default'}:{vae_path or 'default'}"
+    cache_key = f"{backbone}:{ckpt_type}:{checkpoint_path or 'default'}"
     if cache_key not in _MODEL_CACHE:
-        _MODEL_CACHE[cache_key] = _load_pid_model(backbone, ckpt_type, checkpoint_path, vae_path)
+        _MODEL_CACHE[cache_key] = _load_pid_model(backbone, ckpt_type, checkpoint_path)
     return _MODEL_CACHE[cache_key]
 
 
@@ -248,7 +277,7 @@ def run_pid_decode(
     data_batch: dict[str, Any] = {
         model.config.input_caption_key: [prompt] * B,
         "LQ_latent": latent,
-        "degrade_sigma": torch.full((B,), degrade_sigma, device=device, dtype=torch.float32),
+        "degrade_sigma": torch.full((B,), degrade_sigma, device=device, dtype=dtype),
     }
     if lq_type in ("image", "image_latent"):
         data_batch["LQ_video_or_image"] = torch.zeros(B, 3, vae_h, vae_w, device=device, dtype=dtype)

@@ -3,7 +3,6 @@
 Nodes:
 - PiDModelLoader: Load PiD checkpoint
 - PiDDecode: Decode latent with PiD (replaces VAE decode)
-- PiDDecodeFromImage: Image → encode → PiD decode (full pipeline)
 """
 
 from __future__ import annotations
@@ -17,10 +16,8 @@ import folder_paths
 from comfy_api.latest import ComfyExtension, io
 
 from .core.pid_model_manager import (
-    comfy_image_to_pid,
     comfy_latent_to_pid,
     get_cached_model,
-    pid_encode_image,
     run_pid_decode,
 )
 
@@ -61,12 +58,6 @@ class PiDModelLoader(io.ComfyNode):
                     default="",
                     tooltip="Select a PiD checkpoint from ComfyUI/models/PiD/. Leave empty to use the official registry default.",
                 ),
-                io.Combo.Input(
-                    "vae_name",
-                    options=["(auto)"] + (folder_paths.get_filename_list("vae") or []),
-                    default="(auto)",
-                    tooltip="VAE for the backbone. '(auto)' = let PiD load its own VAE. Otherwise select from ComfyUI/models/vae/.",
-                ),
             ],
             outputs=[
                 PID_MODEL.Output("PID_MODEL", display_name="PiD Model"),
@@ -74,14 +65,11 @@ class PiDModelLoader(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, backbone: str, ckpt_type: str, checkpoint_name: str, vae_name: str):
+    def execute(cls, backbone: str, ckpt_type: str, checkpoint_name: str):
         ckpt_path = None
         if checkpoint_name and not checkpoint_name.startswith("("):
             ckpt_path = folder_paths.get_full_path("pid", checkpoint_name)
-        vae_path = None
-        if vae_name and vae_name != "(auto)":
-            vae_path = folder_paths.get_full_path("vae", vae_name)
-        model = get_cached_model(backbone, ckpt_type, ckpt_path, vae_path)
+        model = get_cached_model(backbone, ckpt_type, ckpt_path)
         return io.NodeOutput({
             "model": model,
             "backbone": backbone,
@@ -177,102 +165,10 @@ class PiDDecode(io.ComfyNode):
             scale=scale,
         ))
 
-
-class PiDDecodeFromImage(io.ComfyNode):
-    """Image → VAE encode → optional noise → PiD decode."""
-
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="PiDDecodeFromImage",
-            display_name="PiD Decode From Image",
-            category="PiD",
-            description="Encode image to latent, optionally add noise, then decode with PiD for SR.",
-            inputs=[
-                io.Image.Input("image", tooltip="Input image to super-resolve"),
-                PID_MODEL.Input("pid_model", tooltip="Loaded PiD model"),
-                io.String.Input(
-                    "prompt",
-                    default="",
-                    multiline=True,
-                    tooltip="Text prompt describing the image",
-                ),
-                io.Float.Input(
-                    "cfg_scale",
-                    default=1.0,
-                    min=1.0,
-                    max=10.0,
-                    step=0.1,
-                ),
-                io.Int.Input(
-                    "num_steps",
-                    default=4,
-                    min=1,
-                    max=50,
-                    step=1,
-                ),
-                io.Int.Input(
-                    "seed",
-                    default=0,
-                    min=0,
-                    max=0xFFFFFFFFFFFFFFFF,
-                    control_after_generate=True,
-                ),
-                io.Float.Input(
-                    "degrade_sigma",
-                    default=0.0,
-                    min=0.0,
-                    max=1.0,
-                    step=0.01,
-                    tooltip="Noise level to add to encoded latent (0 = clean round-trip)",
-                ),
-                io.Int.Input(
-                    "scale",
-                    default=0,
-                    min=0,
-                    max=8,
-                    step=1,
-                    tooltip="Upscale factor. 0 = auto.",
-                ),
-            ],
-            outputs=[
-                io.Image.Output("IMAGE", tooltip="Super-resolved output"),
-            ],
-        )
-
-    @classmethod
-    def execute(
-        cls,
-        image,
-        pid_model: dict,
-        prompt: str,
-        cfg_scale: float,
-        num_steps: int,
-        seed: int,
-        degrade_sigma: float,
-        scale: int,
-    ):
-        model = pid_model["model"]
-        latent = pid_encode_image(model, comfy_image_to_pid(image))
-
-        comfy_image = run_pid_decode(
-            model=model,
-            latent=latent,
-            prompt=prompt,
-            cfg_scale=cfg_scale,
-            num_steps=num_steps,
-            seed=seed,
-            degrade_sigma=degrade_sigma,
-            scale=scale,
-        )
-
-        return io.NodeOutput(comfy_image)
-
-
 class PiDExtension(ComfyExtension):
     @override
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
-        return [PiDModelLoader, PiDDecode, PiDDecodeFromImage]
+        return [PiDModelLoader, PiDDecode]
 
 
 async def comfy_entrypoint() -> PiDExtension:

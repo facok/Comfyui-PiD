@@ -1,6 +1,3 @@
-# Vendored PiD source code (copied from upstream, not tracked)
-pid_core/
-
 # Claude Code
 .claude/
 
@@ -13,6 +10,9 @@ __pycache__/
 # Environments
 venv/
 .env
+
+# Upstream PiD directory (user will delete manually)
+PiD/
 
 # Checkpoints (user-downloaded)
 checkpoints/
