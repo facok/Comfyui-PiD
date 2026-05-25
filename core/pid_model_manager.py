@@ -1,12 +1,8 @@
 """PiD model manager — loads checkpoints and runs inference.
 
-Handles ComfyUI ↔ PiD data format conversions:
-- ComfyUI LATENT: {"samples": [B,C,H,W]} → PiD LQ_latent: [B,C,H,W]
-- ComfyUI IMAGE: [B,H,W,C] float32 [0,1] → PiD image: [B,3,H,W] float32 [-1,1]
-- PiD output: [B,3,H,W] [-1,1] → ComfyUI IMAGE: [B,H,W,C] [0,1]
-
+Handles ComfyUI ↔ PiD data format conversions.
 All PiD imports are deferred to runtime to avoid crashing ComfyUI startup
-when PiD dependencies (omegaconf, hydra-core, etc.) are not yet installed.
+when PiD dependencies are not yet installed.
 """
 
 from __future__ import annotations
@@ -21,23 +17,38 @@ import torch
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Global model cache
-# ---------------------------------------------------------------------------
 _MODEL_CACHE: dict[str, Any] = {}
+_COMPAT_PATCHED = False
 
 
 def _ensure_pid_in_path():
-    """Add PiD source tree to sys.path if present."""
-    pid_dir = Path(__file__).parent.parent / "PiD"
-    if pid_dir.exists() and str(pid_dir) not in sys.path:
-        sys.path.insert(0, str(pid_dir))
+    """Ensure plugin root is in sys.path so 'pid_core' package can be imported.
+
+    Also checks for legacy 'PiD/' upstream directory as fallback.
+    """
+    plugin_root = Path(__file__).parent.parent.resolve()
+
+    if str(plugin_root) not in sys.path:
+        sys.path.insert(0, str(plugin_root))
 
 
 def _setup_compat():
-    """Apply Windows compatibility patches."""
+    """Apply Windows compatibility patches (idempotent)."""
+    global _COMPAT_PATCHED
+    if _COMPAT_PATCHED:
+        return
     from core.compat import setup_pid_compat
+
     setup_pid_compat()
+    _COMPAT_PATCHED = True
+
+
+def _resolve_ckpt_path(ckpt_path: str) -> str:
+    """Resolve relative checkpoint path against plugin root."""
+    if os.path.isabs(ckpt_path):
+        return ckpt_path
+    plugin_root = Path(__file__).parent.parent.resolve()
+    return str(plugin_root / ckpt_path)
 
 
 def _load_pid_model(
@@ -45,31 +56,15 @@ def _load_pid_model(
     ckpt_type: str,
     checkpoint_path: str | None = None,
 ) -> Any:
-    """Load a PiD model from checkpoint.
-
-    Args:
-        backbone: "flux", "flux2", "sd3", "zimage", "rae", "scale_rae"
-        ckpt_type: "2k" or "2kto4k"
-        checkpoint_path: explicit path, or None to use registry default
-
-    Returns:
-        Loaded PiD model instance.
-    """
     _ensure_pid_in_path()
     _setup_compat()
 
-    # Deferred imports — PiD deps may not be available at plugin load time
-    from pid._src.inference.checkpoint_registry import get_pid_checkpoint
-    from pid._src.utils.model_loader import load_model_from_checkpoint
+    from pid_core._src.inference.checkpoint_registry import get_pid_checkpoint
+    from pid_core._src.utils.model_loader import load_model_from_checkpoint
 
     ckpt_info = get_pid_checkpoint(backbone, ckpt_type)
     experiment = ckpt_info.experiment
-    ckpt_path = checkpoint_path or ckpt_info.checkpoint_path
-
-    # Resolve checkpoint path relative to PiD directory
-    if not os.path.isabs(ckpt_path):
-        pid_dir = Path(__file__).parent.parent / "PiD"
-        ckpt_path = str(pid_dir / ckpt_path)
+    ckpt_path = _resolve_ckpt_path(checkpoint_path or ckpt_info.checkpoint_path)
 
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(
@@ -77,16 +72,14 @@ def _load_pid_model(
             f"Please download checkpoints from https://huggingface.co/nvidia/PiD"
         )
 
-    config_file = "pid/_src/configs/pid/config.py"
-
     logger.info(f"Loading PiD model: backbone={backbone}, ckpt_type={ckpt_type}")
     logger.info(f"  experiment={experiment}")
     logger.info(f"  checkpoint={ckpt_path}")
 
-    model, _config = load_model_from_checkpoint(
+    model, _ = load_model_from_checkpoint(
         experiment_name=experiment,
         checkpoint_path=ckpt_path,
-        config_file=config_file,
+        config_file="pid_core/_src/configs/pid/config.py",
         enable_fsdp=False,
         experiment_opts=[],
         strict=False,
@@ -94,7 +87,8 @@ def _load_pid_model(
     )
     model.eval()
 
-    logger.info(f"PiD model loaded. Parameters: {sum(p.numel() for p in model.parameters()):,}")
+    param_count = sum(p.numel() for p in model.parameters())
+    logger.info(f"PiD model loaded. Parameters: {param_count:,}")
     return model
 
 
@@ -108,25 +102,16 @@ def get_cached_model(backbone: str, ckpt_type: str, checkpoint_path: str | None 
 
 def clear_model_cache():
     """Clear all cached models to free VRAM."""
-    global _MODEL_CACHE
-    for model in _MODEL_CACHE.values():
-        del model
     _MODEL_CACHE.clear()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     logger.info("PiD model cache cleared.")
 
 
-# ---------------------------------------------------------------------------
-# ComfyUI ↔ PiD format conversions
-# ---------------------------------------------------------------------------
+# Format conversions
+
 
 def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
-    """Convert ComfyUI LATENT dict to PiD LQ_latent tensor.
-
-    ComfyUI LATENT: {"samples": [B,C,H,W]}
-    PiD expects: [B,C,H,W] tensor (same format, just extract from dict)
-    """
     samples = latent["samples"]
     if not isinstance(samples, torch.Tensor):
         raise TypeError(f"Expected latent['samples'] to be Tensor, got {type(samples)}")
@@ -134,83 +119,75 @@ def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
 
 
 def comfy_image_to_pid(image: torch.Tensor) -> torch.Tensor:
-    """Convert ComfyUI IMAGE to PiD image format.
-
-    ComfyUI IMAGE: [B, H, W, C] float32 [0, 1]
-    PiD image: [B, 3, H, W] float32 [-1, 1]
-    """
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,H,W,C], got shape {image.shape}")
-    # [B,H,W,C] -> [B,C,H,W]
-    image = image.permute(0, 3, 1, 2)
-    # [0,1] -> [-1,1]
-    image = image * 2.0 - 1.0
-    return image
+    return image.permute(0, 3, 1, 2).mul_(2.0).sub_(1.0)
 
 
 def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
-    """Convert PiD image output to ComfyUI IMAGE format.
-
-    PiD output: [B, 3, H, W] float32 [-1, 1]
-    ComfyUI IMAGE: [B, H, W, C] float32 [0, 1]
-    """
     if image.dim() == 5:
-        # [B,C,1,H,W] -> [B,C,H,W]
         image = image.squeeze(2)
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,C,H,W], got shape {image.shape}")
-    # [-1,1] -> [0,1]
-    image = (image + 1.0) / 2.0
-    image = image.clamp(0.0, 1.0)
-    # [B,C,H,W] -> [B,H,W,C]
-    image = image.permute(0, 2, 3, 1)
-    return image
+    return image.add(1.0).div_(2.0).clamp_(0.0, 1.0).permute(0, 2, 3, 1)
 
 
-# ---------------------------------------------------------------------------
-# Inference
-# ---------------------------------------------------------------------------
+def pid_latent_to_comfy(latent: torch.Tensor) -> dict:
+    return {"samples": latent.cpu().float()}
 
-def pid_decode(
+
+# Shared helpers
+
+
+def sanitize_prompt(prompt: str, fallback: str = "high quality image") -> str:
+    return prompt.strip() if prompt and prompt.strip() else fallback
+
+
+def _get_model_device_dtype(model: Any) -> tuple[str, torch.dtype]:
+    """Return (device, dtype) for the model, with cross-platform fallbacks."""
+    device = next(model.parameters()).device.type
+    if device == "cpu":
+        return "cpu", torch.float32
+    if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+        return device, torch.bfloat16
+    return device, torch.float16
+
+
+def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int, scale: int | None) -> int:
+    if scale is not None and scale > 0:
+        return scale
+    image_size = getattr(model.config, "image_size", 1024)
+    inferred = image_size // (latent_h * vae_compression)
+    if inferred < 1:
+        logger.warning(
+            f"Inferred scale {inferred} from image_size={image_size}, "
+            f"latent={latent_h}x{latent_w}, compression={vae_compression}. Falling back to 4x."
+        )
+        return 4
+    return inferred
+
+
+def run_pid_decode(
     model: Any,
     latent: torch.Tensor,
     prompt: str,
-    cfg_scale: float = 1.0,
-    num_steps: int = 4,
-    seed: int = 0,
-    degrade_sigma: float = 0.0,
-    scale: int | None = None,
+    cfg_scale: float,
+    num_steps: int,
+    seed: int,
+    degrade_sigma: float,
+    scale: int,
 ) -> torch.Tensor:
-    """Run PiD decode on a latent tensor.
+    """Shared decode pipeline: validate prompt, resolve scale, run PiD decode, convert output."""
+    prompt = sanitize_prompt(prompt)
+    device, dtype = _get_model_device_dtype(model)
 
-    Args:
-        model: Loaded PiD model.
-        latent: [B, C, H, W] latent tensor.
-        prompt: Text prompt for conditioning.
-        cfg_scale: Classifier-free guidance scale.
-        num_steps: Number of denoising steps (4 for distilled checkpoints).
-        seed: Random seed.
-        degrade_sigma: Noise level to add to latent (0.0 = clean).
-        scale: Output upscale factor. If None, uses model's default.
-
-    Returns:
-        Decoded image tensor [B, 3, H_out, W_out] in [-1, 1].
-    """
-    device = "cuda"
-    dtype = torch.bfloat16
-
-    latent = latent.to(device=device, dtype=dtype)
+    if latent.device.type != device or latent.dtype != dtype:
+        latent = latent.to(device=device, dtype=dtype)
     B = latent.shape[0]
 
-    # Derive output image size from latent shape
     latent_h, latent_w = latent.shape[-2], latent.shape[-1]
     vae_compression = getattr(model.vae_encoder, "spatial_compression_factor", 8)
-
-    if scale is None:
-        # Try to get scale from model config
-        scale = getattr(model.config, "image_size", 1024) // (latent_h * vae_compression)
-        if scale < 1:
-            scale = 4  # Default fallback
+    scale = _resolve_scale(model, latent_h, latent_w, vae_compression, scale if scale > 0 else None)
 
     vae_h = latent_h * vae_compression
     vae_w = latent_w * vae_compression
@@ -222,19 +199,19 @@ def pid_decode(
         f"steps={num_steps} cfg={cfg_scale} sigma={degrade_sigma}"
     )
 
-    # Optional noise injection
     if degrade_sigma > 0:
         generator = torch.Generator(device=device).manual_seed(seed)
         noise = torch.randn(latent.shape, generator=generator, device=device, dtype=dtype)
         latent = (1.0 - degrade_sigma) * latent + degrade_sigma * noise
 
-    # Build data batch
-    data_batch = {
+    lq_type = getattr(model.config, "lq_condition_type", "latent")
+    data_batch: dict[str, Any] = {
         model.config.input_caption_key: [prompt] * B,
-        "LQ_video_or_image": torch.zeros(B, 3, vae_h, vae_w, device=device, dtype=dtype),
         "LQ_latent": latent,
         "degrade_sigma": torch.full((B,), degrade_sigma, device=device, dtype=torch.float32),
     }
+    if lq_type in ("image", "image_latent"):
+        data_batch["LQ_video_or_image"] = torch.zeros(B, 3, vae_h, vae_w, device=device, dtype=dtype)
 
     with torch.no_grad():
         output = model.generate_samples_from_batch(
@@ -245,20 +222,12 @@ def pid_decode(
             image_size=target_hw,
         )
 
-    # output is [B, 3, H_out, W_out] in [-1, 1] (or [B, 3, 1, H, W] from generate_samples_from_batch)
-    return output
+    return pid_image_to_comfy(output)
 
 
 def pid_encode_image(model: Any, image: torch.Tensor) -> torch.Tensor:
-    """Encode an image through PiD's frozen VAE.
-
-    Args:
-        model: Loaded PiD model.
-        image: [B, 3, H, W] in [-1, 1].
-
-    Returns:
-        Latent [B, C, H/8, W/8].
-    """
+    device = next(model.parameters()).device
+    if image.device != device:
+        image = image.to(device=device)
     with torch.no_grad():
-        latent = model.encode_lq_latent(image)
-    return latent
+        return model.encode_lq_latent(image)

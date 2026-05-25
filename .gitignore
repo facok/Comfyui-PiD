@@ -1,5 +1,5 @@
-# PiD source code — will be removed after extracting key code
-PiD/
+# Vendored PiD source code (copied from upstream, not tracked)
+pid_core/
 
 # Claude Code
 .claude/

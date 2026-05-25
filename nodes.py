@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import torch
 from typing_extensions import override
 
 from comfy_api.latest import ComfyExtension, io
@@ -20,23 +19,18 @@ from core.pid_model_manager import (
     comfy_image_to_pid,
     comfy_latent_to_pid,
     get_cached_model,
-    pid_decode,
     pid_encode_image,
-    pid_image_to_comfy,
+    pid_latent_to_comfy,
+    run_pid_decode,
 )
 
 logger = logging.getLogger(__name__)
 
-# Custom type for passing loaded PiD models between nodes
 PID_MODEL = io.Custom("PID_MODEL")
 
 _BACKBONE_OPTIONS = ["flux", "flux2", "sd3", "zimage", "rae", "scale_rae"]
 _CKPT_TYPE_OPTIONS = ["2k", "2kto4k"]
 
-
-# =============================================================================
-# PiD Model Loader
-# =============================================================================
 
 class PiDModelLoader(io.ComfyNode):
     """Load a PiD (Pixel Diffusion Decoder) model checkpoint."""
@@ -76,7 +70,6 @@ class PiDModelLoader(io.ComfyNode):
     def execute(cls, backbone: str, ckpt_type: str, checkpoint_path: str):
         ckpt_path = checkpoint_path.strip() or None
         model = get_cached_model(backbone, ckpt_type, ckpt_path)
-        # Return a lightweight handle; actual model stays in global cache
         return io.NodeOutput({
             "model": model,
             "backbone": backbone,
@@ -84,16 +77,8 @@ class PiDModelLoader(io.ComfyNode):
         })
 
 
-# =============================================================================
-# PiD Decode — replace VAE decode with PiD super-resolution
-# =============================================================================
-
 class PiDDecode(io.ComfyNode):
-    """Decode a latent using PiD for high-resolution super-resolution output.
-
-    Replaces the standard VAE Decode step in ComfyUI workflows.
-    Takes a ComfyUI LATENT (from KSampler) and produces a high-res IMAGE.
-    """
+    """Decode a latent using PiD for high-resolution super-resolution output."""
 
     @classmethod
     def define_schema(cls):
@@ -169,39 +154,20 @@ class PiDDecode(io.ComfyNode):
         degrade_sigma: float,
         scale: int,
     ):
-        model = pid_model["model"]
-        latent_tensor = comfy_latent_to_pid(latent)
-
-        # Ensure prompt is not empty
-        if not prompt or not prompt.strip():
-            prompt = "high quality image"
-
-        actual_scale = scale if scale > 0 else None
-
-        output = pid_decode(
-            model=model,
-            latent=latent_tensor,
-            prompt=prompt.strip(),
+        return io.NodeOutput(run_pid_decode(
+            model=pid_model["model"],
+            latent=comfy_latent_to_pid(latent),
+            prompt=prompt,
             cfg_scale=cfg_scale,
             num_steps=num_steps,
             seed=seed,
             degrade_sigma=degrade_sigma,
-            scale=actual_scale,
-        )
+            scale=scale,
+        ))
 
-        comfy_image = pid_image_to_comfy(output)
-        return io.NodeOutput(comfy_image)
-
-
-# =============================================================================
-# PiD Decode From Image — full encode + decode pipeline
-# =============================================================================
 
 class PiDDecodeFromImage(io.ComfyNode):
-    """Image → VAE encode → optional noise → PiD decode.
-
-    Useful for upscaling existing images with PiD's super-resolution decoder.
-    """
+    """Image → VAE encode → optional noise → PiD decode."""
 
     @classmethod
     def define_schema(cls):
@@ -266,7 +232,7 @@ class PiDDecodeFromImage(io.ComfyNode):
     @classmethod
     def execute(
         cls,
-        image: torch.Tensor,
+        image,
         pid_model: dict,
         prompt: str,
         cfg_scale: float,
@@ -276,39 +242,21 @@ class PiDDecodeFromImage(io.ComfyNode):
         scale: int,
     ):
         model = pid_model["model"]
-        pid_image = comfy_image_to_pid(image)
+        latent = pid_encode_image(model, comfy_image_to_pid(image))
 
-        # Encode through PiD's frozen VAE
-        latent = pid_encode_image(model, pid_image)
-
-        if not prompt or not prompt.strip():
-            prompt = "high quality image"
-
-        actual_scale = scale if scale > 0 else None
-
-        # Decode with PiD
-        output = pid_decode(
+        comfy_image = run_pid_decode(
             model=model,
             latent=latent,
-            prompt=prompt.strip(),
+            prompt=prompt,
             cfg_scale=cfg_scale,
             num_steps=num_steps,
             seed=seed,
             degrade_sigma=degrade_sigma,
-            scale=actual_scale,
+            scale=scale,
         )
 
-        comfy_image = pid_image_to_comfy(output)
+        return io.NodeOutput(comfy_image, pid_latent_to_comfy(latent))
 
-        # Build ComfyUI LATENT dict for optional passthrough
-        latent_dict = {"samples": latent.cpu().float()}
-
-        return io.NodeOutput(comfy_image, latent_dict)
-
-
-# =============================================================================
-# Extension registration
-# =============================================================================
 
 class PiDExtension(ComfyExtension):
     @override
