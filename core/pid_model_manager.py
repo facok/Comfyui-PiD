@@ -100,9 +100,13 @@ def _load_pid_model(
     ckpt_path = _resolve_ckpt_path(checkpoint_path or ckpt_info.checkpoint_path)
 
     if not os.path.exists(ckpt_path):
+        # Strip legacy prefix for user-facing error message
+        display_path = ckpt_info.checkpoint_path
+        if display_path.startswith("checkpoints/"):
+            display_path = display_path[len("checkpoints/"):]
         raise FileNotFoundError(
             f"PiD checkpoint not found: {ckpt_path}\n"
-            f"Expected: ComfyUI/models/PiD/{ckpt_info.checkpoint_path}\n"
+            f"Expected: ComfyUI/models/PiD/{display_path}\n"
             f"Download from: https://huggingface.co/nvidia/PiD"
         )
 
@@ -160,7 +164,7 @@ def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
         image = image.squeeze(2)
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,C,H,W], got shape {image.shape}")
-    return ((image + 1.0) / 2.0).clamp_(0.0, 1.0).permute(0, 2, 3, 1)
+    return ((image + 1.0) / 2.0).clamp(0.0, 1.0).permute(0, 2, 3, 1)
 
 
 def pid_latent_to_comfy(latent: torch.Tensor) -> dict:
