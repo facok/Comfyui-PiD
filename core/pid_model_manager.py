@@ -21,6 +21,26 @@ _MODEL_CACHE: dict[str, Any] = {}
 _COMPAT_PATCHED = False
 
 
+def _register_pid_model_folder():
+    """Register ComfyUI/models/PiD as the standard model folder for PiD checkpoints."""
+    try:
+        import folder_paths
+        base = folder_paths.base_path
+        pid_dir = os.path.join(base, "models", "PiD")
+        if os.path.exists(pid_dir):
+            folder_paths.add_model_folder_path("pid", pid_dir)
+        else:
+            # Fallback: create directory inside custom_nodes/Comfyui-PiD
+            plugin_root = Path(__file__).parent.parent.resolve()
+            fallback = str(plugin_root / "checkpoints")
+            folder_paths.add_model_folder_path("pid", fallback)
+    except Exception:
+        pass
+
+
+_register_pid_model_folder()
+
+
 def _ensure_pid_in_path():
     """Ensure plugin root is in sys.path so 'pid_core' package can be imported."""
     plugin_root = Path(__file__).parent.parent.resolve()
@@ -40,9 +60,17 @@ def _setup_compat():
 
 
 def _resolve_ckpt_path(ckpt_path: str) -> str:
-    """Resolve relative checkpoint path against plugin root."""
+    """Resolve checkpoint path using ComfyUI model folders."""
     if os.path.isabs(ckpt_path):
         return ckpt_path
+    try:
+        import folder_paths
+        for folder in folder_paths.get_folder_paths("pid"):
+            candidate = os.path.join(folder, ckpt_path)
+            if os.path.exists(candidate):
+                return candidate
+    except Exception:
+        pass
     plugin_root = Path(__file__).parent.parent.resolve()
     return str(plugin_root / ckpt_path)
 
@@ -65,7 +93,8 @@ def _load_pid_model(
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(
             f"PiD checkpoint not found: {ckpt_path}\n"
-            f"Please download checkpoints from https://huggingface.co/nvidia/PiD"
+            f"Expected location: ComfyUI/models/PiD/{ckpt_info.checkpoint_path}\n"
+            f"Download from: https://huggingface.co/nvidia/PiD"
         )
 
     logger.info(f"Loading PiD model: backbone={backbone}, ckpt_type={ckpt_type}")

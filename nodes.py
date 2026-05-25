@@ -58,7 +58,7 @@ class PiDModelLoader(io.ComfyNode):
                 io.String.Input(
                     "checkpoint_path",
                     default="",
-                    tooltip="Optional: explicit checkpoint path. If empty, uses the official registry default.",
+                    tooltip="Optional: explicit checkpoint path. If empty, uses the official registry default. Models should be placed in ComfyUI/models/PiD/",
                 ),
             ],
             outputs=[
