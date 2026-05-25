@@ -144,13 +144,12 @@ def override(config: Config, overrides: Optional[list[str]] = None) -> Config:
 
 
 def get_config_module(config_file: str) -> str:
+    # Accept either a Python module path ("pkg.sub.module") or a path to a
+    # .py file relative to the current working directory.
     if not config_file.endswith(".py"):
-        log.error("Config file cannot be specified as module.")
-        log.error("Please provide the path to the Python config file (relative to the Imaginaire4 root).")
+        return config_file
     assert os.path.isfile(config_file), f"Imaginaire4 config file ({config_file}) not found."
-    # Convert to importable module format.
-    config_module = config_file.replace("/", ".").replace(".py", "")
-    return config_module
+    return config_file.replace("/", ".").replace(".py", "")
 
 
 def import_module(full_module_name: str, reload: bool = False):

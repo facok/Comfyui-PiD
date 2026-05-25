@@ -115,17 +115,23 @@ def _load_pid_model(
     logger.info(f"  checkpoint={ckpt_path}")
 
     plugin_root = Path(__file__).parent.parent.resolve()
-    config_file = str(plugin_root / "pid_core/_src/configs/pid/config.py")
+    if str(plugin_root) not in sys.path:
+        sys.path.insert(0, str(plugin_root))
     model, _ = load_model_from_checkpoint(
         experiment_name=experiment,
         checkpoint_path=ckpt_path,
-        config_file=config_file,
+        config_file="pid_core._src.configs.pid.config",
         enable_fsdp=False,
         experiment_opts=experiment_opts,
         strict=False,
         load_ema_to_reg=False,
     )
     model.eval()
+
+    # Record the official pid_scale (e.g. 4 for sr4x, 8 for scale_rae) on the
+    # model so _resolve_scale can auto-infer correctly.
+    if not hasattr(model.config, "pid_scale"):
+        object.__setattr__(model.config, "pid_scale", ckpt_info.pid_scale)
 
     param_count = sum(p.numel() for p in model.parameters())
     logger.info(f"PiD model loaded. Parameters: {param_count:,}")
@@ -158,6 +164,28 @@ def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
     return samples
 
 
+# ComfyUI's LATENT["samples"] is in *raw* VAE space (process_latent_out has
+# already been applied), but PiD was trained on the normalized latent that
+# the VAE's .encode() returns: z = scale * (raw - shift). We have to reapply
+# this normalization before feeding LQ_latent to PiD.  Keys must match
+# _BACKBONE_OPTIONS in nodes.py.
+_BACKBONE_LATENT_NORM: dict[str, tuple[float, float]] = {
+    "flux": (0.3611, 0.1159),
+    "zimage": (0.3611, 0.1159),  # ZImage shares Flux1's 16-ch VAE
+    "sd3": (1.5305, 0.0609),
+}
+
+
+def normalize_comfy_latent_for_pid(latent: torch.Tensor, backbone: str) -> torch.Tensor:
+    if backbone not in _BACKBONE_LATENT_NORM:
+        # flux2 (BatchNorm-normalized) and rae / scale_rae (non-VAE tokenizers)
+        # don't fit a simple affine; pass through and let the user see the
+        # mismatch instead of silently corrupting the latent.
+        return latent
+    scale, shift = _BACKBONE_LATENT_NORM[backbone]
+    return (latent - shift) * scale
+
+
 def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
     if image.dim() == 5:
         image = image.squeeze(2)
@@ -183,6 +211,14 @@ def _get_model_device_dtype(model: Any) -> tuple[str, torch.dtype]:
 def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int, scale: int | None) -> int:
     if scale is not None and scale > 0:
         return scale
+    # PiD checkpoints bake a fixed spatial upscaling ratio (sr4x → 4, sr8x → 8)
+    # into the network.  Auto-infer from that rather than image_size, because
+    # image_size is the *output* resolution used during training and does not
+    # represent the SR ratio for arbitrary input sizes.
+    pid_scale = getattr(model.config, "pid_scale", None)
+    if pid_scale is not None:
+        return pid_scale
+    # Fallback (should never hit for official checkpoints).
     image_size = getattr(model.config, "image_size", 1024)
     inferred = image_size // (latent_h * vae_compression)
     if inferred < 1:
@@ -203,13 +239,22 @@ def run_pid_decode(
     seed: int,
     degrade_sigma: float,
     scale: int,
+    backbone: str,
 ) -> torch.Tensor:
     """Shared decode pipeline: validate prompt, resolve scale, run PiD decode, convert output."""
     prompt = sanitize_prompt(prompt)
     device, dtype = _get_model_device_dtype(model)
 
+    latent = normalize_comfy_latent_for_pid(latent, backbone)
     if latent.device.type != device or latent.dtype != dtype:
         latent = latent.to(device=device, dtype=dtype)
+    logger.info(
+        f"PiD LQ_latent stats (after normalize): "
+        f"mean={latent.float().mean().item():.4f} "
+        f"std={latent.float().std().item():.4f} "
+        f"min={latent.float().min().item():.4f} "
+        f"max={latent.float().max().item():.4f}"
+    )
     B = latent.shape[0]
 
     latent_h, latent_w = latent.shape[-2], latent.shape[-1]

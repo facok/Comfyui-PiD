@@ -96,14 +96,6 @@ class PiDDecode(io.ComfyNode):
                     multiline=True,
                     tooltip="Text prompt describing the desired image content",
                 ),
-                io.Float.Input(
-                    "cfg_scale",
-                    default=1.0,
-                    min=1.0,
-                    max=10.0,
-                    step=0.1,
-                    tooltip="Classifier-free guidance scale. 1.0 = no CFG",
-                ),
                 io.Int.Input(
                     "num_steps",
                     default=4,
@@ -148,7 +140,6 @@ class PiDDecode(io.ComfyNode):
         latent: dict,
         pid_model: dict,
         prompt: str,
-        cfg_scale: float,
         num_steps: int,
         seed: int,
         degrade_sigma: float,
@@ -158,11 +149,12 @@ class PiDDecode(io.ComfyNode):
             model=pid_model["model"],
             latent=comfy_latent_to_pid(latent),
             prompt=prompt,
-            cfg_scale=cfg_scale,
+            cfg_scale=1.0,  # distilled checkpoints do not use CFG
             num_steps=num_steps,
             seed=seed,
             degrade_sigma=degrade_sigma,
             scale=scale,
+            backbone=pid_model["backbone"],
         ))
 
 class PiDExtension(ComfyExtension):
