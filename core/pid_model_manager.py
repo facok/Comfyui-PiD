@@ -111,10 +111,13 @@ def _load_pid_model(
     logger.info(f"  experiment={experiment}")
     logger.info(f"  checkpoint={ckpt_path}")
 
+    plugin_root = Path(__file__).parent.parent.resolve()
+    config_file = str(plugin_root / "pid_core" / "_src" / "configs" / "pid" / "config.py")
+
     model, _ = load_model_from_checkpoint(
         experiment_name=experiment,
         checkpoint_path=ckpt_path,
-        config_file="pid_core/_src/configs/pid/config.py",
+        config_file=config_file,
         enable_fsdp=False,
         experiment_opts=[],
         strict=False,
