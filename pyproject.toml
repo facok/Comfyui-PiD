@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-pid"
+version = "0.1.0"
+description = "ComfyUI plugin for PiD (Pixel Diffusion Decoder)"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/nvidia/PiD"
+
+[tool.comfy]
+PublisherId = "nvidia"
+DisplayName = "ComfyUI-PiD"

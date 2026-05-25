@@ -1,0 +1,22 @@
+# PiD source code — will be removed after extracting key code
+PiD/
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+.env
+
+# Checkpoints (user-downloaded)
+checkpoints/
+
+# Outputs
+output/
+temp/
