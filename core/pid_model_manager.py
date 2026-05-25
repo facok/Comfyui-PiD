@@ -201,7 +201,7 @@ def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
         image = image.squeeze(2)
     if image.dim() != 4:
         raise ValueError(f"Expected image [B,C,H,W], got shape {image.shape}")
-    return ((image + 1.0) / 2.0).clamp(0.0, 1.0).permute(0, 2, 3, 1)
+    return ((image + 1.0) / 2.0).clamp(0.0, 1.0).permute(0, 2, 3, 1).float()
 
 
 def pid_latent_to_comfy(latent: torch.Tensor) -> dict:
