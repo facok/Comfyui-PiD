@@ -112,18 +112,21 @@ def _load_pid_model(
     logger.info(f"  checkpoint={ckpt_path}")
 
     plugin_root = Path(__file__).parent.parent.resolve()
-    config_file = str(plugin_root / "pid_core" / "_src" / "configs" / "pid" / "config.py")
-
-    model, _ = load_model_from_checkpoint(
-        experiment_name=experiment,
-        checkpoint_path=ckpt_path,
-        config_file=config_file,
-        enable_fsdp=False,
-        experiment_opts=[],
-        strict=False,
-        load_ema_to_reg=False,
-    )
-    model.eval()
+    orig_cwd = os.getcwd()
+    os.chdir(plugin_root)
+    try:
+        model, _ = load_model_from_checkpoint(
+            experiment_name=experiment,
+            checkpoint_path=ckpt_path,
+            config_file="pid_core/_src/configs/pid/config.py",
+            enable_fsdp=False,
+            experiment_opts=[],
+            strict=False,
+            load_ema_to_reg=False,
+        )
+        model.eval()
+    finally:
+        os.chdir(orig_cwd)
 
     param_count = sum(p.numel() for p in model.parameters())
     logger.info(f"PiD model loaded. Parameters: {param_count:,}")
