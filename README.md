@@ -128,6 +128,17 @@ Save Image / Preview Image
    If OOM, try a smaller input latent or reduce batch size.  
    如果显存不足，请缩小输入 latent 尺寸或减少 batch size。
 
+5. **Height limit / 高度限制**
+   The `2kto4k` model was trained up to ~4096px output height. Beyond this, RoPE position encoding extrapolation may cause **green artifacts** at the bottom of the image.
+   `2kto4k` 模型训练时最大输出高度约为 4096px，超过此高度时 RoPE 位置编码外推可能导致图像**底部出现绿色伪影**。
+
+   **Pixel ↔ Latent conversion / 像素与 latent 换算**：
+   - flux VAE compression = 8, PiD sr4x scale = 4
+   - 输出像素高度 = `latent_height × 8 × 4` = `latent_height × 32`
+   - 示例：latent 128×128 → 输出 4096×4096
+
+   > To stay within the safe range, keep **latent height ≤ 128** (output ≤ 4096px). 安全范围：**latent 高度 ≤ 128**（输出 ≤ 4096px）。
+
 ---
 
 ## Troubleshooting / 故障排查
@@ -136,6 +147,7 @@ Save Image / Preview Image
 |-------|-------|-----|
 | Blurry output + color shift / 模糊+变色 | Wrong ckpt_type (2k for 1024 input) / ckpt_type 选错 | Use `2kto4k` for 1024px inputs |
 | Green artifacts on edges / 边缘绿色伪影 | Out-of-distribution resolution (2k with 1024 input) | Use `2kto4k` |
+| Green artifacts at bottom / 底部绿色伪影 | Output height > 4096px (beyond 2kto4k training distribution) | Reduce input latent height to ≤128 |
 | OOM at 4096px / 4096px 显存溢出 | Target resolution too large | Reduce input latent size or use `scale=2` |
 | PiD checkpoint not found / 找不到权重 | Model not in `ComfyUI/models/PiD/` | Download from HF and place correctly |
 
