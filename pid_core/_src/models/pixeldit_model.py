@@ -300,13 +300,16 @@ class PixelDiTModel(ImaginaireModel):
             self.text_encoder = self.text_encoder.to("cpu")
             torch.cuda.empty_cache()
 
-        # Slice out only the real tokens (attention_mask == 1).  Never feed PAD
-        # embeddings into PiD's joint attention — they corrupt generation.
+        # Extract only real tokens using the attention_mask bool index.
+        # This is padding-side-agnostic: works for both left and right padding.
+        # Feeding PAD embeddings into PiD's joint attention corrupts generation.
         logger.info(f"_encode_text_raw: actual_len={actual_len}, max_length_all={max_length_all}")
+        mask = caption_token.attention_mask[0].bool()  # [seq_len]
         if actual_len <= self.config.model_max_length:
-            caption_embs = caption_embs[:, :actual_len]
-            emb_masks = caption_token.attention_mask[:, :actual_len]
+            caption_embs = caption_embs[:, mask]
+            emb_masks = caption_token.attention_mask[:, mask]
         else:
+            # Keep BOS + last (model_max_length - 1) real tokens
             select_index = [0] + list(range(-self.config.model_max_length + 1, 0))
             caption_embs = caption_embs[:, select_index]
             emb_masks = caption_token.attention_mask[:, select_index]
