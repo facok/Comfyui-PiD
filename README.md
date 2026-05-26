@@ -23,6 +23,18 @@ Dependencies will be installed automatically on first launch.
 
 依赖会在首次启动时自动安装。
 
+If automatic installation fails, install manually with ComfyUI's embedded Python:
+
+如果自动安装失败，使用 ComfyUI 自带的 Python 手动安装：
+
+```bash
+# Windows portable
+.\python_embeded\python.exe -m pip install -r ComfyUI\custom_nodes\Comfyui-PiD\requirements.txt
+
+# Linux / MacOS
+python -m pip install -r ComfyUI/custom_nodes/Comfyui-PiD/requirements.txt
+```
+
 ---
 
 ## Model Setup / 模型准备

@@ -1,5 +1,4 @@
 # ComfyUI-PiD dependencies
-# Install with: D:\ComfyUI_windows_portable\python_embedded\python.exe -m pip install -r requirements.txt
 
 omegaconf>=2.3.0
 hydra-core>=1.3.2
