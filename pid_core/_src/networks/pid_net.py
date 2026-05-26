@@ -449,7 +449,7 @@ class PidNet(PixDiT_T2I):
             x_pixels = split_inputs_cp(x_pixels, seq_dim=1, cp_group=cp_group)
             x_pixels = x_pixels.reshape(B * L_local, P2, self.pixel_hidden_size)
         for blk in self.pixel_blocks:
-            x_pixels = blk(x_pixels, s_cond, H, W, self.patch_size, mask)
+            x_pixels = blk(x_pixels, s_cond, H, W, self.patch_size, mask=None)
 
         x_pixels = self.final_layer(x_pixels)  # [B*L_local, P², C_out]
         C_out = self.out_channels
