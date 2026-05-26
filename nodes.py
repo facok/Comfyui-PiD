@@ -126,7 +126,7 @@ class PiDDecode(io.ComfyNode):
                     min=0,
                     max=8,
                     step=1,
-                    tooltip="Upscale factor. 0 = auto (from model config, typically 4x).",
+                    tooltip="Upscale factor. 0 = auto (from model config, always 4x for flux/zimage/sd3/flux2/rae, 8x for scale_rae). Non-matching values are ignored because PiD checkpoints have a fixed SR ratio baked into the network.",
                 ),
             ],
             outputs=[

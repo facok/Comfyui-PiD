@@ -238,15 +238,20 @@ def _get_model_device_dtype(model: Any) -> tuple[str, torch.dtype]:
 
 
 def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int, scale: int | None) -> int:
-    if scale is not None and scale > 0:
-        return scale
     # PiD checkpoints bake a fixed spatial upscaling ratio (sr4x → 4, sr8x → 8)
-    # into the network.  Auto-infer from that rather than image_size, because
-    # image_size is the *output* resolution used during training and does not
-    # represent the SR ratio for arbitrary input sizes.
+    # into the network architecture (lq_proj, patch size, etc.).  The scale is
+    # not adjustable at inference — using a non-matching value produces corrupted
+    # output because the network expects a fixed LQ→HQ spatial ratio.
     pid_scale = getattr(model.config, "pid_scale", None)
     if pid_scale is not None:
+        if scale is not None and scale > 0 and scale != pid_scale:
+            logger.warning(
+                f"Requested scale={scale}x but this checkpoint is fixed at {pid_scale}x. "
+                f"Forcing scale={pid_scale}."
+            )
         return pid_scale
+    if scale is not None and scale > 0:
+        return scale
     # Fallback (should never hit for official checkpoints).
     image_size = getattr(model.config, "image_size", 1024)
     inferred = image_size // (latent_h * vae_compression)
