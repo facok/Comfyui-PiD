@@ -53,6 +53,7 @@ class PixelDiTModelConfig:
     y_norm: bool = True
     y_norm_scale_factor: float = 0.01
     model_max_length: int = 300
+    chi_prompt: Any = None
     conditioner: Any = None
 
     # Flow matching: only `fm_timescale` is read at inference (network expects
@@ -211,6 +212,16 @@ class PixelDiTModel(ImaginaireModel):
         super().__init__()
         self.config = config
 
+        # Chi-prompt: prepend a system prompt that guides Gemma to generate richer
+        # embeddings for short / simple prompts.  Tokenizer pads to
+        # chi_tokens + model_max_length - 2, then select_index drops the chi-prompt
+        # prefix so only the enhanced user prompt (+ BOS) reaches the network.
+        self._chi_prompt_str = ""
+        self._num_chi_tokens = 0
+        if config.chi_prompt is not None:
+            self._chi_prompt_str = "\n".join(config.chi_prompt)
+            logger.info("PiD chi_prompt enabled")
+
         if config.dynamic_shift is not None:
             _ds = config.dynamic_shift
             logger.info(
@@ -263,11 +274,16 @@ class PixelDiTModel(ImaginaireModel):
 
     @torch.no_grad()
     def _encode_text_raw(self, captions: list[str]) -> tuple[Tensor, Tensor]:
-        prompts_all = captions
-
-        # Official PiD uses a fixed max_length = model_max_length (300).
-        # PiD's joint attention handles PAD positions via attention_mask.
-        max_length_all = self.config.model_max_length
+        if self._chi_prompt_str:
+            prompts_all = [self._chi_prompt_str + cap for cap in captions]
+            # Lazy count chi tokens on first call (tokenizer is now loaded).
+            if self._num_chi_tokens == 0:
+                self._num_chi_tokens = len(self.tokenizer(self._chi_prompt_str)["input_ids"])
+                logger.info(f"PiD chi_prompt token count: {self._num_chi_tokens}")
+            max_length_all = self._num_chi_tokens + self.config.model_max_length - 2
+        else:
+            prompts_all = captions
+            max_length_all = self.config.model_max_length
 
         caption_token = self.tokenizer(
             prompts_all,
@@ -277,8 +293,6 @@ class PixelDiTModel(ImaginaireModel):
             return_tensors="pt",
         ).to("cuda")
 
-        # The *real* number of non-PAD positions (includes BOS/EOS added by the
-        # tokenizer).  Using attention_mask is the only reliable way.
         actual_len = int(caption_token.attention_mask.sum(dim=1)[0].item())
 
         # Text encoder lives on CPU to save VRAM.  Move to GPU only while
@@ -287,8 +301,6 @@ class PixelDiTModel(ImaginaireModel):
         if te_device.type == "cpu":
             self.text_encoder = self.text_encoder.to("cuda")
 
-        # Autocast needed because Gemma's RMSNorm computes in float32 internally;
-        # without autocast the bf16 weight × float32 hidden-state multiplication errors out.
         with torch.autocast("cuda", dtype=self.autocast_dtype) if self.autocast_dtype else nullcontext():
             caption_embs = self.text_encoder(caption_token.input_ids, caption_token.attention_mask)[0]
 
@@ -296,10 +308,8 @@ class PixelDiTModel(ImaginaireModel):
             self.text_encoder = self.text_encoder.to("cpu")
             torch.cuda.empty_cache()
 
-        # Match official PiD behaviour: fixed max_length=300, return all 300
-        # positions (including PAD).  PiD's joint attention uses the
-        # attention_mask to ignore PAD positions; slicing them out destroys
-        # the absolute position embeddings (RoPE) computed by the text encoder.
+        # Official PiD: select_index drops the chi_prompt prefix (if present)
+        # and keeps BOS + the last (model_max_length-1) positions.
         logger.info(f"_encode_text_raw: actual_len={actual_len}, max_length_all={max_length_all}")
         select_index = [0] + list(range(-self.config.model_max_length + 1, 0))
         caption_embs = caption_embs[:, select_index]
