@@ -115,7 +115,6 @@ class PidDistillModel(PidModel):
         noise: torch.Tensor,
         t_list: torch.Tensor,
         caption_embs: torch.Tensor,
-        emb_masks: Optional[torch.Tensor],
         lq_video_or_image: Optional[torch.Tensor],
         lq_latent: Optional[torch.Tensor],
         degrade_sigma_tensor: Optional[torch.Tensor],
@@ -136,7 +135,6 @@ class PidDistillModel(PidModel):
                     x,
                     t_cur_scaled,
                     caption_embs,
-                    mask=emb_masks,
                     lq_video_or_image=lq_video_or_image,
                     lq_latent=lq_latent,
                     degrade_sigma=degrade_sigma_tensor,
@@ -218,9 +216,8 @@ class PidDistillModel(PidModel):
         B = len(captions)
         if self.config.use_fixed_prompt:
             captions = [self.config.fixed_positive_prompt] * B
-        caption_embs, emb_masks = self._encode_text_raw(captions)
+        caption_embs, _ = self._encode_text_raw(captions)
         caption_embs = caption_embs.to(**self.tensor_kwargs)
-        emb_masks = emb_masks.to(**self.tensor_kwargs) if emb_masks is not None else None
 
         lq_video_or_image = None
         lq_latent = None
@@ -266,7 +263,6 @@ class PidDistillModel(PidModel):
                     noise,
                     t_student_scaled,
                     caption_embs,
-                    mask=emb_masks,
                     lq_video_or_image=lq_video_or_image,
                     lq_latent=lq_latent,
                     degrade_sigma=degrade_sigma_tensor,
@@ -278,7 +274,6 @@ class PidDistillModel(PidModel):
                 noise,
                 t_list,
                 caption_embs,
-                emb_masks,
                 lq_video_or_image,
                 lq_latent,
                 degrade_sigma_tensor,

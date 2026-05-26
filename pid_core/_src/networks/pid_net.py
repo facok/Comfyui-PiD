@@ -316,6 +316,9 @@ class PidNet(PixDiT_T2I):
         condition = torch.nn.functional.silu(t_emb)
 
         # Mask
+        # SDPA bool mask semantics vary by PyTorch version; PiD official code
+        # builds mask with PAD=True, image=False which matches the convention
+        # used in the training codebase (MultiheadAttention semantics).
         pad = None
         pos_txt = self.fetch_pos_text(Ltxt, x.device) if self.use_text_rope else None
         if mask is not None and isinstance(mask, torch.Tensor):
