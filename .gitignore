@@ -14,6 +14,13 @@ venv/
 # Upstream PiD directory (user will delete manually)
 PiD/
 
+# Large model weights — user must download separately
+pretrained/**/*.safetensors
+pretrained/**/*.bin
+pretrained/**/*.pt
+pretrained/**/*.pth
+pretrained/**/*.ckpt
+
 # Checkpoints (user-downloaded)
 checkpoints/
 
