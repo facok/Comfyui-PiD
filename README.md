@@ -53,6 +53,10 @@ PiD 使用 **gemma-2-2b-it** 作为文本编码器（约 25 亿参数）。
   ```
   ComfyUI/models/clip/gemma-2-2b-it.safetensors
   ```
+  Direct link / 直接下载：
+  ```
+  https://huggingface.co/Efficient-Large-Model/gemma-2-2b-it/resolve/main/gemma-2-2b-it.safetensors?download=true
+  ```
 - The tokenizer & config files are **bundled** with this plugin under `pretrained/text_encoder/gemma-2-2b-it/`. No HuggingFace download is needed at runtime.  
   tokenizer 和配置文件已**预打包**在 `pretrained/text_encoder/gemma-2-2b-it/` 目录下，运行时不需要联网下载。
 
