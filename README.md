@@ -70,12 +70,15 @@ Loads a PiD checkpoint.
 
 | Parameter | Description | 说明 |
 |-----------|-------------|------|
-| **backbone** | VAE backbone the PiD model was trained with: `flux`, `flux2`, `sd3`, `zimage`, `rae`, `scale_rae` | PiD 训练时用的 VAE backbone |
-| **ckpt_type** | `2k` = original 2048px decoder (512→2048). `2kto4k` = multi-res trained (1024→4K). Only for flux/flux2/sd3/zimage. | `2k` 原始版（512→2048），`2kto4k` 多分辨率版（1024→4K） |
+| **backbone** | VAE backbone: `flux`, `zimage` | PiD 训练时用的 VAE backbone |
+| **ckpt_type** | `2k` = 512×512 input → 2048×2048 output. `2kto4k` = 1024×1024 input → up to 4096×4096 output. | `2k` 输入限制 **512×512**，`2kto4k` 输入限制 **1024×1024** |
 | **checkpoint_name** | Optional: select a custom `.pth/.safetensors` from `ComfyUI/models/PiD/`. Leave empty to use the official registry default. | 可选：从 `ComfyUI/models/PiD/` 选择自定义权重，留空使用官方默认 |
 
-> **Important / 重要**：For 1024×1024 inputs, always use **`2kto4k`** (trained for 1024→4K). `2k` is only for 512×1024 inputs.  
-> 对于 1024×1024 输入，请始终使用 **`2kto4k`**（训练目标 1024→4K）。`2k` 仅适用于 512px 输入。
+> **Important / 重要 — Input Size Limits / 输入尺寸限制**：
+> - **`2k`** — Input must be **512×512** (latent 64×64). Do NOT use with 1024×1024 inputs — causes blur and color shift. Output = 2048×2048.
+>   `2k` 输入必须是 **512×512**（latent 64×64），**不可用于 1024×1024** — 会导致模糊和变色。输出 2048×2048。
+> - **`2kto4k`** — Input must be **1024×1024** (latent 128×128). Do NOT use with 512×512 inputs. Output = 4096×4096.
+>   `2kto4k` 输入必须是 **1024×1024**（latent 128×128），**不可用于 512×512**。输出 4096×4096。
 
 ### PiD Decode
 
@@ -89,7 +92,6 @@ Decodes a ComfyUI latent through PiD for super-resolution output.
 | **num_steps** | `4` | PiD denoising steps. **Use 4** for official distilled checkpoints. | PiD 去噪步数，官方蒸馏模型请用 **4** |
 | **seed** | `0` | Random seed for reproducibility | 随机种子 |
 | **degrade_sigma** | `0.0` | Optional noise to add to the latent before decode. `0` = clean deterministic decode. | 解码前加到 latent 的噪声，`0` 表示确定性的干净解码 |
-| **scale** | `0` | Upscale factor. `0` = auto (from model config, **always 4× for flux/zimage/sd3/flux2**). | 放大倍数，`0` 自动推断（flux/zimage/sd3/flux2 固定为 **4×**） |
 
 ---
 
@@ -104,7 +106,7 @@ KSampler / Sampler → LATENT (1024×1024 or 512×512)
   ↓
 PiD Model Loader (backbone=zimage, ckpt_type=2kto4k)
   ↓
-PiD Decode (scale=0 for auto 4×, num_steps=4, prompt=same as above)
+PiD Decode (num_steps=4, prompt=same as above)
   ↓
 Save Image / Preview Image
 ```
@@ -112,7 +114,7 @@ Save Image / Preview Image
 **Example / 示例**：
 - Z-Image-Turbo KSampler → 1024×1024 latent  
 - PiD Model Loader: `backbone=zimage`, `ckpt_type=2kto4k`  
-- PiD Decode: `scale=0` (auto → 4× → 4096×4096), `num_steps=4`
+- PiD Decode: fixed 4× upscale → 4096×4096, `num_steps=4`
 
 ---
 
@@ -153,10 +155,10 @@ Save Image / Preview Image
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| Blurry output + color shift / 模糊+变色 | Wrong ckpt_type (2k for 1024 input) / ckpt_type 选错 | Use `2kto4k` for 1024px inputs |
-| Green artifacts on edges / 边缘绿色伪影 | Out-of-distribution resolution (2k with 1024 input) | Use `2kto4k` |
+| Blurry output + color shift / 模糊+变色 | **2k** used with 1024×1024 input (exceeds 512 limit) / 2k 输入超过 512 限制 | Switch to `2kto4k`, ensure input is 1024×1024 |
+| Blurry output + color shift / 模糊+变色 | **2kto4k** used with 512×512 input (below 1024) / 2kto4k 输入低于 1024 | Switch to `2k`, ensure input is 512×512 |
 | Green artifacts at bottom / 底部绿色伪影 | Output height > 4096px (beyond 2kto4k training distribution) | Reduce input latent height to ≤128 |
-| OOM at 4096px / 4096px 显存溢出 | Target resolution too large | Reduce input latent size or use `scale=2` |
+| OOM at 4096px / 4096px 显存溢出 | Target resolution too large | Reduce input latent size (e.g. 768×768 → 1024×1024 still works with 2kto4k) |
 | PiD checkpoint not found / 找不到权重 | Model not in `ComfyUI/models/PiD/` | Download from HF and place correctly |
 
 ---
