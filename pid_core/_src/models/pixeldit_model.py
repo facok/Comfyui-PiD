@@ -53,7 +53,6 @@ class PixelDiTModelConfig:
     y_norm: bool = True
     y_norm_scale_factor: float = 0.01
     model_max_length: int = 300
-    chi_prompt: list = attrs.Factory(list)
     conditioner: Any = None
 
     # Flow matching: only `fm_timescale` is read at inference (network expects
@@ -248,8 +247,6 @@ class PixelDiTModel(ImaginaireModel):
                 _tokenizer, _text_encoder = _load_text_encoder(config.text_encoder_name, device="cuda")
                 object.__setattr__(self, "tokenizer", _tokenizer)
                 object.__setattr__(self, "text_encoder", _text_encoder)
-        self._chi_prompt_str = "\n".join(config.chi_prompt) if config.chi_prompt else ""
-        self._num_chi_tokens = len(self.tokenizer.encode(self._chi_prompt_str)) if self._chi_prompt_str else 0
         self._null_caption_embs = self._encode_text_raw([config.negative_prompt if config.negative_prompt else ""])[
             0
         ]
@@ -266,10 +263,7 @@ class PixelDiTModel(ImaginaireModel):
 
     @torch.no_grad()
     def _encode_text_raw(self, captions: list[str]) -> tuple[Tensor, Tensor]:
-        if self._chi_prompt_str:
-            prompts_all = [self._chi_prompt_str + cap for cap in captions]
-        else:
-            prompts_all = captions
+        prompts_all = captions
 
         # Use a tight max_length to minimise PAD tokens.  We do NOT know the exact
         # token count yet (the tokenizer may add BOS/EOS), so we estimate with
