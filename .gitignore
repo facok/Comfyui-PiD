@@ -12,7 +12,7 @@ venv/
 .env
 
 # Upstream PiD directory (user will delete manually)
-PiD/
+/PiD/
 
 # Large model weights — user must download separately
 pretrained/**/*.safetensors

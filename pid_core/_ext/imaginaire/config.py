@@ -185,8 +185,7 @@ class JobConfig:
     group: str = ""
     # Run/job name.
     name: str = ""
-    # W&B mode, can be "online", or "disabled".
-    wandb_mode: str = "online"
+    # W&B removed — inference-only, no experiment tracking needed.
 
     @property
     def path(self) -> str:
@@ -356,7 +355,6 @@ class TrainerConfig:
         dict(
             ema=L(callback.EMAModelCallback)(),
             progress_bar=L(callback.ProgressBarCallback)(),
-            wandb=L(callback.WandBCallback)(),
         )
     )
     # distributed parallelism strategy

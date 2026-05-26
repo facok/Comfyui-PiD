@@ -35,7 +35,11 @@ except ImportError:
     straggler = None
 import termcolor
 import torch
-import wandb
+
+try:
+    import wandb
+except ImportError:
+    wandb = None
 from torch.distributed._functional_collectives import AsyncCollectiveTensor
 from torch.distributed._tensor.api import DTensor
 
@@ -394,7 +398,7 @@ class TrainingTimer:
 def timeout_handler(timeout_period: float, signum: int, frame: int) -> None:
     # What to do when the process gets stuck. For now, we simply end the process.
     error_message = f"Timeout error: more than {timeout_period} seconds passed since the last iteration."
-    if distributed.is_rank0():
+    if distributed.is_rank0() and wandb is not None:
         wandb.alert(title="Timeout error!", text=error_message, level=wandb.AlertLevel.ERROR)
     raise TimeoutError(error_message)
 
@@ -633,7 +637,7 @@ class StragglerDetectorV2:
                             f"slowest_rank/slowest_{key}_time": torch.max(data_tensor).item(),
                         }
                     )
-                if wandb.run:
+                if wandb is not None and wandb.run:
                     wandb.log(wandb_info, step=iteration)
 
                 import pid_core._ext.imaginaire.utils.launch

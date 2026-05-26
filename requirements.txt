@@ -16,5 +16,4 @@ huggingface-hub>=0.24.0
 attrs>=23.0.0
 einops>=0.7.0
 loguru>=0.7.0
-wandb
 boto3>=1.28.0
