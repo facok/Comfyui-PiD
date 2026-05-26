@@ -1,5 +1,9 @@
 # ComfyUI-PiD — Pixel Diffusion Decoder
 
+> **Unofficial / 非官方实现** — This is an experimental community wrapper. For the official PiD repository, see [nv-tlabs/PiD](https://github.com/nv-tlabs/PiD). It is recommended to wait for an official ComfyUI implementation from the PiD authors or ComfyUI maintainers for production use.
+>
+> 这是一个实验性的社区封装插件。官方 PiD 仓库见 [nv-tlabs/PiD](https://github.com/nv-tlabs/PiD)。建议等待 PiD 作者或 ComfyUI 维护者提供官方实现后再用于生产环境。
+
 PiD (Pixel Diffusion Decoder) is a plug-and-play diffusion-based decoder that replaces the traditional VAE decoder, directly turning latent representations into high-resolution, super-resolved pixels. This is the **ComfyUI V3 API** wrapper for NVIDIA PiD.
 
 PiD（Pixel Diffusion Decoder）是一个即插即用的扩散解码器，替代传统 VAE 解码器，将 latent 直接转换为高分辨率像素。这是 NVIDIA PiD 的 **ComfyUI V3 API** 封装插件。
@@ -155,5 +159,5 @@ Save Image / Preview Image
 
 ## Credits / 致谢
 
-- **NVIDIA PiD**: [Hugging Face — nvidia/PiD](https://huggingface.co/nvidia/PiD) | [GitHub](https://github.com/nvidia/PiD)
+- **NVIDIA PiD** (official): [Hugging Face — nvidia/PiD](https://huggingface.co/nvidia/PiD) | [GitHub — nv-tlabs/PiD](https://github.com/nv-tlabs/PiD)
 - Paper: arXiv:2605.23902
