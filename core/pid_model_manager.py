@@ -237,21 +237,11 @@ def _get_model_device_dtype(model: Any) -> tuple[str, torch.dtype]:
     return param.device.type, param.dtype
 
 
-def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int, scale: int | None) -> int:
-    # PiD checkpoints bake a fixed spatial upscaling ratio (sr4x → 4, sr8x → 8)
-    # into the network architecture (lq_proj, patch size, etc.).  The scale is
-    # not adjustable at inference — using a non-matching value produces corrupted
-    # output because the network expects a fixed LQ→HQ spatial ratio.
+def _resolve_scale(model: Any, latent_h: int, latent_w: int, vae_compression: int) -> int:
+    """Return the fixed SR ratio baked into this PiD checkpoint (sr4x → 4)."""
     pid_scale = getattr(model.config, "pid_scale", None)
     if pid_scale is not None:
-        if scale is not None and scale > 0 and scale != pid_scale:
-            logger.warning(
-                f"Requested scale={scale}x but this checkpoint is fixed at {pid_scale}x. "
-                f"Forcing scale={pid_scale}."
-            )
         return pid_scale
-    if scale is not None and scale > 0:
-        return scale
     # Fallback (should never hit for official checkpoints).
     image_size = getattr(model.config, "image_size", 1024)
     inferred = image_size // (latent_h * vae_compression)
@@ -272,10 +262,9 @@ def run_pid_decode(
     num_steps: int,
     seed: int,
     degrade_sigma: float,
-    scale: int,
     backbone: str,
 ) -> torch.Tensor:
-    """Shared decode pipeline: validate prompt, resolve scale, run PiD decode, convert output."""
+    """Shared decode pipeline: validate prompt, run PiD decode, convert output."""
     prompt = sanitize_prompt(prompt)
     device, dtype = _get_model_device_dtype(model)
 
@@ -293,7 +282,7 @@ def run_pid_decode(
 
     latent_h, latent_w = latent.shape[-2], latent.shape[-1]
     vae_compression = getattr(model.vae_encoder, "spatial_compression_factor", 8)
-    scale = _resolve_scale(model, latent_h, latent_w, vae_compression, scale if scale > 0 else None)
+    scale = _resolve_scale(model, latent_h, latent_w, vae_compression)
 
     vae_h = latent_h * vae_compression
     vae_w = latent_w * vae_compression

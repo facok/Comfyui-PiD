@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 PID_MODEL = io.Custom("PID_MODEL")
 
-_BACKBONE_OPTIONS = ["flux", "flux2", "sd3", "zimage", "rae", "scale_rae"]
+_BACKBONE_OPTIONS = ["flux", "zimage"]
 _CKPT_TYPE_OPTIONS = ["2k", "2kto4k"]
 
 
@@ -50,7 +50,7 @@ class PiDModelLoader(io.ComfyNode):
                     "ckpt_type",
                     options=_CKPT_TYPE_OPTIONS,
                     default="2k",
-                    tooltip="'2k' = 2048px decoder (4x upscaling). '2kto4k' = up to 4K (flux/flux2/sd3/zimage only)",
+                    tooltip="'2k' = 2048px decoder (512→2048). '2kto4k' = up to 4K (1024→4096). For 1024×1024 inputs, always use 2kto4k.",
                 ),
                 io.Combo.Input(
                     "checkpoint_name",
@@ -86,7 +86,7 @@ class PiDDecode(io.ComfyNode):
             node_id="PiDDecode",
             display_name="PiD Decode",
             category="PiD",
-            description="Decode latent with PiD pixel diffusion decoder. Output resolution = latent * 8 * scale.",
+            description="Decode latent with PiD pixel diffusion decoder. Output is always 4× the VAE latent size (flux/zimage only).",
             inputs=[
                 io.Latent.Input("latent", tooltip="ComfyUI LATENT from KSampler"),
                 PID_MODEL.Input("pid_model", tooltip="Loaded PiD model from PiD Model Loader"),
@@ -120,14 +120,6 @@ class PiDDecode(io.ComfyNode):
                     step=0.01,
                     tooltip="Optional noise to add to latent before decode (0 = clean). Useful for stochastic decoding.",
                 ),
-                io.Int.Input(
-                    "scale",
-                    default=0,
-                    min=0,
-                    max=8,
-                    step=1,
-                    tooltip="Upscale factor. 0 = auto (from model config, always 4x for flux/zimage/sd3/flux2/rae, 8x for scale_rae). Non-matching values are ignored because PiD checkpoints have a fixed SR ratio baked into the network.",
-                ),
             ],
             outputs=[
                 io.Image.Output("IMAGE", tooltip="Super-resolved output image"),
@@ -143,7 +135,6 @@ class PiDDecode(io.ComfyNode):
         num_steps: int,
         seed: int,
         degrade_sigma: float,
-        scale: int,
     ):
         return io.NodeOutput(run_pid_decode(
             model=pid_model["model"],
@@ -153,7 +144,6 @@ class PiDDecode(io.ComfyNode):
             num_steps=num_steps,
             seed=seed,
             degrade_sigma=degrade_sigma,
-            scale=scale,
             backbone=pid_model["backbone"],
         ))
 
