@@ -21,9 +21,13 @@ from contextlib import contextmanager
 from typing import Generator, Union
 from urllib.parse import urlparse
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
+try:
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ClientError
+except ImportError:
+    boto3 = None
+
 from torch.distributed.checkpoint import FileSystemReader, FileSystemWriter
 from torch.distributed.checkpoint.filesystem import FileSystemBase
 

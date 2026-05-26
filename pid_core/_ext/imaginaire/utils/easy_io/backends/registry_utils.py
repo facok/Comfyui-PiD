@@ -17,9 +17,13 @@ import inspect
 from typing import Optional, Type, Union
 
 from pid_core._ext.imaginaire.utils.easy_io.backends.base_backend import BaseStorageBackend
-from pid_core._ext.imaginaire.utils.easy_io.backends.boto3_backend import Boto3Backend
 from pid_core._ext.imaginaire.utils.easy_io.backends.http_backend import HTTPBackend
 from pid_core._ext.imaginaire.utils.easy_io.backends.local_backend import LocalBackend
+
+try:
+    from pid_core._ext.imaginaire.utils.easy_io.backends.boto3_backend import Boto3Backend
+except ImportError:
+    Boto3Backend = None
 
 backends: dict = {}
 prefix_to_backends: dict = {}
@@ -124,7 +128,7 @@ def register_backend(
 
 
 register_backend("local", LocalBackend, prefixes="")
-# To avoid breaking backward Compatibility, 's3' is also used as a
-# prefix for Boto3Backend
-register_backend("s3", Boto3Backend, prefixes=["s3"])
+# S3 backend only available when boto3 is installed (training-only, not needed for inference)
+if Boto3Backend is not None:
+    register_backend("s3", Boto3Backend, prefixes=["s3"])
 register_backend("http", HTTPBackend, prefixes=["http", "https"])

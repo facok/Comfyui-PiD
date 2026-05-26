@@ -14,7 +14,6 @@
 # limitations under the License.
 
 from pid_core._ext.imaginaire.utils.easy_io.backends.base_backend import BaseStorageBackend
-from pid_core._ext.imaginaire.utils.easy_io.backends.boto3_backend import Boto3Backend
 from pid_core._ext.imaginaire.utils.easy_io.backends.http_backend import HTTPBackend
 from pid_core._ext.imaginaire.utils.easy_io.backends.local_backend import LocalBackend
 from pid_core._ext.imaginaire.utils.easy_io.backends.registry_utils import (
@@ -22,6 +21,11 @@ from pid_core._ext.imaginaire.utils.easy_io.backends.registry_utils import (
     prefix_to_backends,
     register_backend,
 )
+
+try:
+    from pid_core._ext.imaginaire.utils.easy_io.backends.boto3_backend import Boto3Backend
+except ImportError:
+    Boto3Backend = None
 
 __all__ = [
     "BaseStorageBackend",

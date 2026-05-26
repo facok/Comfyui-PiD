@@ -77,7 +77,13 @@ from torch.distributed.checkpoint.utils import _api_bc_check, _DistWrapper, _pro
 from torch.distributed.tensor import distribute_tensor
 
 from pid_core._ext.imaginaire.checkpointer.base import AbstractCheckpointer
-from pid_core._ext.imaginaire.checkpointer.s3_filesystem import S3StorageReader, S3StorageWriter
+
+try:
+    from pid_core._ext.imaginaire.checkpointer.s3_filesystem import S3StorageReader, S3StorageWriter
+except ImportError:
+    S3StorageReader = None
+    S3StorageWriter = None
+
 from pid_core._ext.imaginaire.config import CheckpointConfig, JobConfig
 from pid_core._ext.imaginaire.model import ImaginaireModel
 from pid_core._ext.imaginaire.utils import callback, distributed, log, misc
@@ -960,16 +966,20 @@ class DistributedCheckpointer(AbstractCheckpointer):
             except (EOFError, BrokenPipeError):
                 log.info("Queue was closed by checkpoint background process")
 
-    def get_storage_writer(self, checkpoint_path: str) -> Union[S3StorageWriter, FileSystemWriter]:
+    def get_storage_writer(self, checkpoint_path: str):
         if self.save_to_object_store:
+            if S3StorageWriter is None:
+                raise RuntimeError("boto3 is required for S3 checkpoint writing")
             return S3StorageWriter(
                 credential_path=self.config_checkpoint.save_to_object_store.credentials,
                 path=checkpoint_path,
             )
         return FileSystemWriter(path=checkpoint_path)
 
-    def get_storage_reader(self, checkpoint_path: str) -> Union[S3StorageReader, FileSystemReader]:
+    def get_storage_reader(self, checkpoint_path: str):
         if self.load_from_object_store:
+            if S3StorageReader is None:
+                raise RuntimeError("boto3 is required for S3 checkpoint reading")
             return S3StorageReader(
                 credential_path=self.config_checkpoint.load_from_object_store.credentials,
                 path=checkpoint_path,
