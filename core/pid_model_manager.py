@@ -193,26 +193,26 @@ def comfy_latent_to_pid(latent: dict) -> torch.Tensor:
     return samples
 
 
-# ComfyUI's LATENT["samples"] is in *raw* VAE space (process_latent_out has
-# already been applied), but PiD was trained on the normalized latent that
-# the VAE's .encode() returns: z = scale * (raw - shift). We have to reapply
-# this normalization before feeding LQ_latent to PiD.  Keys must match
-# _BACKBONE_OPTIONS in nodes.py.
-_BACKBONE_LATENT_NORM: dict[str, tuple[float, float]] = {
-    "flux": (0.3611, 0.1159),
-    "zimage": (0.3611, 0.1159),  # ZImage shares Flux1's 16-ch VAE
-    "sd3": (1.5305, 0.0609),
+# Mapping from our backbone names to ComfyUI's latent-format classes.
+# process_in() applies the VAE-specific normalization (z = scale * (raw - shift))
+# so PiD receives latents in the same space it was trained on.
+_BACKBONE_LATENT_FORMAT: dict[str, str] = {
+    "flux": "Flux",
+    "zimage": "Flux",  # ZImage shares Flux1's 16-ch VAE
 }
 
 
 def normalize_comfy_latent_for_pid(latent: torch.Tensor, backbone: str) -> torch.Tensor:
-    if backbone not in _BACKBONE_LATENT_NORM:
-        # flux2 (BatchNorm-normalized) and rae / scale_rae (non-VAE tokenizers)
-        # don't fit a simple affine; pass through and let the user see the
-        # mismatch instead of silently corrupting the latent.
+    fmt_name = _BACKBONE_LATENT_FORMAT.get(backbone)
+    if fmt_name is None:
         return latent
-    scale, shift = _BACKBONE_LATENT_NORM[backbone]
-    return (latent - shift) * scale
+    try:
+        import comfy.latent_formats as lf
+
+        fmt_cls = getattr(lf, fmt_name)
+        return fmt_cls().process_in(latent)
+    except Exception:
+        return latent
 
 
 def pid_image_to_comfy(image: torch.Tensor) -> torch.Tensor:
